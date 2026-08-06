@@ -137,8 +137,7 @@
           "gemini",
           "groq",
           "openrouter",
-          "mistral",
-          "cerebras"
+          "mistral"
         ],
         "title": "Provider",
         "type": "string"
