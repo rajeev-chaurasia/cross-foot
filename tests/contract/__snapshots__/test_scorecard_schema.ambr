@@ -1,0 +1,350 @@
+# serializer version: 1
+# name: test_scorecard_json_schema_is_pinned
+  '''
+  {
+    "$defs": {
+      "CalibrationBin": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "empirical_accuracy": {
+            "title": "Empirical Accuracy",
+            "type": "number"
+          },
+          "field_family": {
+            "$ref": "#/$defs/FieldFamily"
+          },
+          "mean_confidence": {
+            "title": "Mean Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "field_family",
+          "mean_confidence",
+          "empirical_accuracy",
+          "count"
+        ],
+        "title": "CalibrationBin",
+        "type": "object"
+      },
+      "CostCell": {
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "completion_tokens": {
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "list_price_microusd": {
+            "title": "List Price Microusd",
+            "type": "integer"
+          },
+          "prompt_tokens": {
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "provider": {
+            "$ref": "#/$defs/Provider"
+          },
+          "quality_tier": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/QualityTier"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "provider",
+          "calls",
+          "prompt_tokens",
+          "completion_tokens",
+          "list_price_microusd"
+        ],
+        "title": "CostCell",
+        "type": "object"
+      },
+      "ExceptionType": {
+        "enum": [
+          "missing_from_ledger",
+          "missing_from_statement",
+          "amount_mismatch",
+          "duplicate",
+          "short_pay",
+          "timing_difference"
+        ],
+        "title": "ExceptionType",
+        "type": "string"
+      },
+      "FieldAccuracyCell": {
+        "properties": {
+          "correct_canonical": {
+            "title": "Correct Canonical",
+            "type": "integer"
+          },
+          "correct_raw": {
+            "title": "Correct Raw",
+            "type": "integer"
+          },
+          "field_family": {
+            "$ref": "#/$defs/FieldFamily"
+          },
+          "fields_expected": {
+            "title": "Fields Expected",
+            "type": "integer"
+          },
+          "fields_extracted": {
+            "title": "Fields Extracted",
+            "type": "integer"
+          },
+          "quality_tier": {
+            "$ref": "#/$defs/QualityTier"
+          }
+        },
+        "required": [
+          "field_family",
+          "quality_tier",
+          "fields_expected",
+          "fields_extracted",
+          "correct_canonical",
+          "correct_raw"
+        ],
+        "title": "FieldAccuracyCell",
+        "type": "object"
+      },
+      "FieldFamily": {
+        "enum": [
+          "amount",
+          "date",
+          "reference",
+          "text"
+        ],
+        "title": "FieldFamily",
+        "type": "string"
+      },
+      "Provider": {
+        "enum": [
+          "custom",
+          "gemini",
+          "groq",
+          "openrouter",
+          "mistral",
+          "cerebras"
+        ],
+        "title": "Provider",
+        "type": "string"
+      },
+      "QualityTier": {
+        "enum": [
+          "clean_digital",
+          "scan_light",
+          "scan_heavy",
+          "csv",
+          "xlsx",
+          "corrupted"
+        ],
+        "title": "QualityTier",
+        "type": "string"
+      },
+      "ReconCell": {
+        "properties": {
+          "caught_dollar_cents": {
+            "title": "Caught Dollar Cents",
+            "type": "integer"
+          },
+          "detected_false": {
+            "title": "Detected False",
+            "type": "integer"
+          },
+          "detected_true": {
+            "title": "Detected True",
+            "type": "integer"
+          },
+          "exception_type": {
+            "$ref": "#/$defs/ExceptionType"
+          },
+          "injected": {
+            "title": "Injected",
+            "type": "integer"
+          },
+          "injected_dollar_cents": {
+            "title": "Injected Dollar Cents",
+            "type": "integer"
+          },
+          "mode": {
+            "$ref": "#/$defs/ReconMode"
+          }
+        },
+        "required": [
+          "mode",
+          "exception_type",
+          "injected",
+          "detected_true",
+          "detected_false",
+          "injected_dollar_cents",
+          "caught_dollar_cents"
+        ],
+        "title": "ReconCell",
+        "type": "object"
+      },
+      "ReconMode": {
+        "enum": [
+          "end_to_end",
+          "oracle"
+        ],
+        "title": "ReconMode",
+        "type": "string"
+      },
+      "SplitName": {
+        "enum": [
+          "train",
+          "calibration",
+          "test"
+        ],
+        "title": "SplitName",
+        "type": "string"
+      },
+      "ThresholdPoint": {
+        "properties": {
+          "auto_accept_precision": {
+            "title": "Auto Accept Precision",
+            "type": "number"
+          },
+          "field_family": {
+            "$ref": "#/$defs/FieldFamily"
+          },
+          "review_rate": {
+            "title": "Review Rate",
+            "type": "number"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          }
+        },
+        "required": [
+          "field_family",
+          "threshold",
+          "auto_accept_precision",
+          "review_rate"
+        ],
+        "title": "ThresholdPoint",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "calibration": {
+        "default": [],
+        "items": {
+          "$ref": "#/$defs/CalibrationBin"
+        },
+        "title": "Calibration",
+        "type": "array"
+      },
+      "costs": {
+        "default": [],
+        "items": {
+          "$ref": "#/$defs/CostCell"
+        },
+        "title": "Costs",
+        "type": "array"
+      },
+      "created_at": {
+        "format": "date-time",
+        "title": "Created At",
+        "type": "string"
+      },
+      "dataset_config_hash": {
+        "title": "Dataset Config Hash",
+        "type": "string"
+      },
+      "documents_processed": {
+        "title": "Documents Processed",
+        "type": "integer"
+      },
+      "documents_total": {
+        "title": "Documents Total",
+        "type": "integer"
+      },
+      "documents_unprocessable": {
+        "title": "Documents Unprocessable",
+        "type": "integer"
+      },
+      "field_accuracy": {
+        "items": {
+          "$ref": "#/$defs/FieldAccuracyCell"
+        },
+        "title": "Field Accuracy",
+        "type": "array"
+      },
+      "git_sha": {
+        "title": "Git Sha",
+        "type": "string"
+      },
+      "master_seed": {
+        "title": "Master Seed",
+        "type": "integer"
+      },
+      "models_used": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Models Used",
+        "type": "array"
+      },
+      "notes": {
+        "default": "",
+        "title": "Notes",
+        "type": "string"
+      },
+      "reconciliation": {
+        "default": [],
+        "items": {
+          "$ref": "#/$defs/ReconCell"
+        },
+        "title": "Reconciliation",
+        "type": "array"
+      },
+      "run_id": {
+        "title": "Run Id",
+        "type": "string"
+      },
+      "split": {
+        "$ref": "#/$defs/SplitName"
+      },
+      "threshold_sweep": {
+        "default": [],
+        "items": {
+          "$ref": "#/$defs/ThresholdPoint"
+        },
+        "title": "Threshold Sweep",
+        "type": "array"
+      }
+    },
+    "required": [
+      "run_id",
+      "created_at",
+      "git_sha",
+      "dataset_config_hash",
+      "master_seed",
+      "split",
+      "models_used",
+      "documents_total",
+      "documents_processed",
+      "documents_unprocessable",
+      "field_accuracy"
+    ],
+    "title": "Scorecard",
+    "type": "object"
+  }
+  '''
+# ---
