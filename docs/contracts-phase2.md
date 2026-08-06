@@ -206,13 +206,23 @@ Module paths and symbols:
 - `crossfoot.llm.spillover`: `SpilloverClient`, `AllProvidersFailedError`.
 - `crossfoot.llm.ratelimit`: `RateLimiter`, `RetryPolicy`, `Clock`.
 - `crossfoot.llm.runstate`: SQLite table `run_state`, mirroring `llm_calls`.
-- Every StrEnum keeps the repo convention of lowercase string values, so
-  `CallPurpose.EXTRACT == "extract"` and `RunStatus.IN_PROGRESS == "in_progress"`.
+- `crossfoot.llm.results` holds `ChatResult`, `ChatUsage`, `PageImage`, and `LlmError`
+  to break a client and cassette import cycle. They stay importable from
+  `crossfoot.llm.client` through its `__all__`, which is the public path.
+- Enum names are `costs.Purpose` and `runstate.DocStatus`, both keeping the repo
+  convention of lowercase string values, so `Purpose.EXTRACT == "extract"` and
+  `DocStatus.IN_PROGRESS == "in_progress"`.
 
-`LlmClient` signature: `(profile, *, timeout_seconds, mode, cassette_dir, ledger,
-transport=None)`. The keyword-only `transport` accepts an `httpx.BaseTransport` so
-tests drive the client with `httpx.MockTransport` and never touch the network. It is a
-test seam only and defaults to None in production paths.
+`LlmClient` signature: `(profile, timeout_seconds=DEFAULT_TIMEOUT_SECONDS, *, mode,
+cassette_dir, ledger, cache, transport=None)`. `timeout_seconds` stays
+positional-or-keyword because `cli.py` already passes it positionally; everything after
+it is keyword-only. The `transport` seam accepts an `httpx.AsyncBaseTransport` so tests
+drive the client with `httpx.MockTransport` and never touch the network. It is a test
+seam only and defaults to None in production paths.
+
+`ChatResult` compares on content, model, and usage: `latency_ms` and
+`rate_limit_headers` are excluded from equality, which is what lets a replayed result
+equal its recorded original while still reporting no throttling metadata.
 
 Cassette replay and scrubbing: scrubbing wins over round-trip fidelity. A replayed
 `ChatResult` carries `rate_limit_headers == {}` because those headers are never
