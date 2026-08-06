@@ -5,7 +5,7 @@ import importlib
 import json
 import math
 import random
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -71,7 +71,21 @@ CORRUPTED_MIX: dict[DatasetProfile, dict[CorruptionKind, int]] = {
 }
 
 INJECTION_RATE = 0.65
-TRAIN_FRACTION = 0.5  # calibration and test split the remainder evenly
+
+# Document-level split shares. Quotas are exact fractions of each stratum, so the
+# arithmetic stays in binary-exact quarters and never drifts.
+SPLIT_FRACTIONS: dict[SplitName, float] = {
+    SplitName.TRAIN: 0.50,
+    SplitName.CALIBRATION: 0.25,
+    SplitName.TEST: 0.25,
+}
+# Leftover documents go to the largest fractional remainder; equal remainders
+# resolve in this order, counteracting the old rounding bias toward train.
+_REMAINDER_TIE_ORDER: tuple[SplitName, ...] = (
+    SplitName.TEST,
+    SplitName.CALIBRATION,
+    SplitName.TRAIN,
+)
 
 _FILES_DIR = "files"
 _PDF_TIERS = frozenset({QualityTier.CLEAN_DIGITAL, QualityTier.SCAN_LIGHT, QualityTier.SCAN_HEAVY})
@@ -243,6 +257,7 @@ def _assign_splits(prepared: Sequence[_PreparedDoc], master_seed: int) -> dict[s
         cells.setdefault((item.doc.doc_type, item.tier), []).append(item.doc.doc_id)
 
     splits: dict[str, SplitName] = {}
+    carry = dict.fromkeys(SPLIT_FRACTIONS, 0.0)
     for doc_type in DocType:
         for tier in QualityTier:
             doc_ids = cells.get((doc_type, tier))
@@ -251,16 +266,34 @@ def _assign_splits(prepared: Sequence[_PreparedDoc], master_seed: int) -> dict[s
             rng = random.Random(record_seed(master_seed, f"split:{doc_type}:{tier}"))
             shuffled = list(doc_ids)
             rng.shuffle(shuffled)
-            n_train = math.ceil(len(shuffled) * TRAIN_FRACTION)
-            n_calibration = math.ceil((len(shuffled) - n_train) / 2)
-            for index, doc_id in enumerate(shuffled):
-                if index < n_train:
-                    splits[doc_id] = SplitName.TRAIN
-                elif index < n_train + n_calibration:
-                    splits[doc_id] = SplitName.CALIBRATION
-                else:
-                    splits[doc_id] = SplitName.TEST
+            quotas, carry = split_quotas(len(shuffled), carry)
+            start = 0
+            for split in SPLIT_FRACTIONS:
+                for doc_id in shuffled[start : start + quotas[split]]:
+                    splits[doc_id] = split
+                start += quotas[split]
     return splits
+
+
+def split_quotas(
+    count: int, carry: Mapping[SplitName, float]
+) -> tuple[dict[SplitName, int], dict[SplitName, float]]:
+    """Largest-remainder quotas for one stratum, plus the carry for the next one.
+
+    Each split takes the floor of its exact quota and the leftover documents go to
+    the largest fractional remainders. The unspent fractions carry into the next
+    stratum, so small cells stay balanced and the dataset totals track 50/25/25.
+    """
+    exact = {split: count * fraction + carry[split] for split, fraction in SPLIT_FRACTIONS.items()}
+    quotas = {split: max(math.floor(value), 0) for split, value in exact.items()}
+    leftover = max(count - sum(quotas.values()), 0)
+    ranked = sorted(
+        SPLIT_FRACTIONS,
+        key=lambda split: (quotas[split] - exact[split], _REMAINDER_TIE_ORDER.index(split)),
+    )
+    for split in ranked[:leftover]:
+        quotas[split] += 1
+    return quotas, {split: exact[split] - quotas[split] for split in SPLIT_FRACTIONS}
 
 
 def _render_document(

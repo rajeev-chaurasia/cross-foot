@@ -1,17 +1,20 @@
 """Phase 1 baseline eval runner: deterministic CSV extraction scored against truth."""
 
+import logging
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 from crossfoot.constants import ExtractionRoute, QualityTier, SplitName
 from crossfoot.evals.metrics import score_fields
+from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
 from crossfoot.extraction.tabular import extract_csv
 from crossfoot.models.extraction import ExtractedDocument
 from crossfoot.models.ledger import LedgerBook
 from crossfoot.models.manifest import DatasetManifest
 from crossfoot.models.scorecard import Scorecard
 
+_LOGGER = logging.getLogger(__name__)
 _GIT_SHA_FALLBACK = "unknown"
 _GIT_TIMEOUT_SECONDS = 10
 _BASELINE_NOTES = (
@@ -31,7 +34,13 @@ def run_eval(dataset_dir: Path, split: SplitName) -> Scorecard:
     for record in split_records:
         if record.quality_tier is not QualityTier.CSV:
             continue  # non-CSV tiers stay unextracted in this baseline
-        doc = extract_csv(dataset_dir / record.file_path, record.doc_id)
+        try:
+            file_path = resolve_dataset_path(dataset_dir, record.file_path)
+        except UnsafeDatasetPathError as error:
+            _LOGGER.warning("skipping %s: %s", record.doc_id, error)
+            unprocessable += 1
+            continue
+        doc = extract_csv(file_path, record.doc_id)
         if doc.route is ExtractionRoute.UNPROCESSABLE:
             unprocessable += 1
         else:

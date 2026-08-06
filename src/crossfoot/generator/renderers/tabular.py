@@ -2,6 +2,8 @@
 
 import csv
 import random
+import re
+import zipfile
 from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -46,8 +48,14 @@ XLSX_CURRENCY_FORMAT = '"$"#,##0.00'
 XLSX_CURRENCY_CELL_RATIO = 0.5
 XLSX_TITLE_FONT_SIZE = 14
 # Fixed workbook metadata keeps repeated runs comparable; real timestamps never
-# belong in dataset artifacts.
+# belong in dataset artifacts. openpyxl stamps the save time over the properties
+# it was handed, and the zip container carries member mtimes of its own, so the
+# saved file is rewritten with all three pinned to this instant.
 XLSX_FIXED_TIMESTAMP = datetime(2026, 1, 1)
+XLSX_FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+XLSX_CORE_PROPERTIES = "docProps/core.xml"
+_CORE_TIMESTAMP_TEXT = b"2026-01-01T00:00:00Z"
+_CORE_TIMESTAMP_ELEMENT = re.compile(rb"(<dcterms:(?:created|modified)[^>]*>)[^<]*(<)")
 XLSX_GROUP_LABELS = ("References", "Activity", "Amounts")
 XLSX_TOTALS_LABEL = "TOTALS"
 XLSX_COLUMN_WIDTHS: dict[FieldName, float] = {
@@ -239,4 +247,23 @@ def render_xlsx(doc: StatementDoc, template_id: str, seed: int, out_path: Path) 
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     book.save(out_path)
+    _pin_workbook_timestamps(out_path)
     return rendered
+
+
+def _pin_workbook_timestamps(path: Path) -> None:
+    """Rewrite the saved workbook so its bytes carry no wall-clock time."""
+    with zipfile.ZipFile(path) as source:
+        members = [(info, source.read(info.filename)) for info in source.infolist()]
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as target:
+        for info, payload in members:
+            data = (
+                _CORE_TIMESTAMP_ELEMENT.sub(rb"\g<1>" + _CORE_TIMESTAMP_TEXT + rb"\g<2>", payload)
+                if info.filename == XLSX_CORE_PROPERTIES
+                else payload
+            )
+            pinned = zipfile.ZipInfo(info.filename, date_time=XLSX_FIXED_ZIP_TIME)
+            pinned.compress_type = info.compress_type
+            pinned.create_system = info.create_system
+            pinned.external_attr = info.external_attr
+            target.writestr(pinned, data)

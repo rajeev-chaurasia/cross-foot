@@ -2,14 +2,21 @@
 
 import re
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 CENTS_PER_DOLLAR = 100
+
+# Longest numeric text worth converting. Real money never needs this many
+# characters, and it keeps absurd input away from decimal's context precision.
+MAX_AMOUNT_CHARS = 20
 
 # Characters dropped from amount strings before numeric parsing.
 _IGNORED_AMOUNT_CHARS = str.maketrans("", "", "$, ")
 # Plain decimal number: no exponent, no NaN or Infinity spellings.
 _DECIMAL_NUMBER = re.compile(r"\d+(\.\d*)?|\.\d+")
+
+# C0 control characters, tab excluded: NUL and friends are never data.
+_CONTROL_CHARS = {code: None for code in range(32) if code != ord("\t")}
 
 _MDY_DATE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
 _ISO_DATE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
@@ -48,9 +55,12 @@ def parse_amount_to_cents(text: str) -> int | None:
     cleaned = cleaned.translate(_IGNORED_AMOUNT_CHARS)
     if cleaned.startswith("-"):
         negative, cleaned = True, cleaned[1:]
-    if not _DECIMAL_NUMBER.fullmatch(cleaned):
+    if len(cleaned) > MAX_AMOUNT_CHARS or not _DECIMAL_NUMBER.fullmatch(cleaned):
         return None
-    cents = (Decimal(cleaned) * CENTS_PER_DOLLAR).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    try:
+        cents = (Decimal(cleaned) * CENTS_PER_DOLLAR).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    except InvalidOperation:
+        return None
     magnitude = int(cents)
     return -magnitude if negative else magnitude
 
@@ -71,6 +81,11 @@ def parse_date(text: str) -> date | None:
             return None
         return _safe_date(int(year_text), month_no, int(day_text))
     return None
+
+
+def strip_control_chars(text: str) -> str:
+    """Drop NUL and the other C0 control characters, keeping tab."""
+    return text.translate(_CONTROL_CHARS)
 
 
 def normalize_reference(text: str) -> str:

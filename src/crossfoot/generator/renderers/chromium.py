@@ -1,10 +1,13 @@
 """Chromium-printed PDF renderer over the Jinja2 marque template families."""
 
+import hashlib
 from pathlib import Path
 from types import TracebackType
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from playwright.sync_api import Browser, Playwright, sync_playwright
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import ArrayObject, ByteStringObject
 
 from crossfoot.constants import FieldName
 from crossfoot.generator.renderers.base import (
@@ -24,6 +27,10 @@ TEMPLATES_DIR = Path(__file__).resolve().parents[4] / "templates"
 TEMPLATE_SUFFIX = ".html.j2"
 PDF_PAGE_FORMAT = "Letter"
 PDF_MARGIN = "0.5in"
+# Chromium stamps the wall clock into /CreationDate and /ModDate and leaves the
+# trailer id to chance; both are pinned so the same seed yields the same bytes.
+PDF_FIXED_DATE = "D:20260101000000+00'00'"
+PDF_TRAILER_ID_BYTES = 16
 
 
 def _template_relpath(template_id: str) -> str:
@@ -123,6 +130,22 @@ def build_context(doc: StatementDoc) -> tuple[dict[str, object], dict[str, str]]
     return context, rendered
 
 
+def pin_pdf_metadata(path: Path, doc_id: str) -> None:
+    """Rewrite a printed PDF with fixed dates and a doc_id-derived trailer id."""
+    reader = PdfReader(path)
+    writer = PdfWriter()
+    for page in reader.pages:
+        writer.add_page(page)
+    writer.add_metadata({"/CreationDate": PDF_FIXED_DATE, "/ModDate": PDF_FIXED_DATE})
+    digest = hashlib.sha256(doc_id.encode("utf-8")).digest()[:PDF_TRAILER_ID_BYTES]
+    identifier = ByteStringObject(digest)
+    # pypdf exposes the trailer id only as an attribute; leaving it unset writes
+    # no /ID at all, which readers dislike more than a synthetic one.
+    writer._ID = ArrayObject([identifier, identifier])
+    with path.open("wb") as handle:
+        writer.write(handle)
+
+
 def render_html(doc: StatementDoc, template_id: str) -> tuple[str, dict[str, str]]:
     """Render the template to HTML without printing; returns (html, rendered_values)."""
     template = _environment().get_template(_template_relpath(template_id))
@@ -192,4 +215,5 @@ class ChromiumPdfRenderer:
             )
         finally:
             page.close()
+        pin_pdf_metadata(out_path, doc.doc_id)
         return rendered

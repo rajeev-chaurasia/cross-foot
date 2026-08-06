@@ -1,11 +1,14 @@
 """Rendered-values completeness and template health for every renderer."""
 
+import time
+import zipfile
 from datetime import date
 from pathlib import Path
 
 import pdfplumber
 import pytest
 from openpyxl import load_workbook  # type: ignore[import-untyped]
+from pypdf import PdfReader
 
 from crossfoot.constants import CSV_HEADER_SYNONYMS, DocType, FieldName, LineType, Oem
 from crossfoot.generator.renderers.base import (
@@ -14,12 +17,23 @@ from crossfoot.generator.renderers.base import (
     header_key,
     line_key,
 )
-from crossfoot.generator.renderers.chromium import ChromiumPdfRenderer, render_html
-from crossfoot.generator.renderers.tabular import render_csv, render_xlsx
+from crossfoot.generator.renderers.chromium import (
+    PDF_FIXED_DATE,
+    ChromiumPdfRenderer,
+    render_html,
+)
+from crossfoot.generator.renderers.tabular import (
+    XLSX_CORE_PROPERTIES,
+    XLSX_FIXED_ZIP_TIME,
+    render_csv,
+    render_xlsx,
+)
 from crossfoot.models.statement import StatementDoc, StatementLine
 
 TEMPLATE_OEMS = (Oem.MERIDIAN, Oem.NORTHSTAR, Oem.KAIZEN)
 RENDER_SEED = 11
+# Long enough for a wall-clock stamp to change between two renders.
+CLOCK_TICK_SECONDS = 1.5
 
 # Known-good ISO 3779 VIN (check digit X at position 9).
 SAMPLE_VIN = "1M8GDM9AXKP042788"
@@ -161,3 +175,38 @@ def test_render_xlsx_covers_values_and_layout(tmp_path: Path) -> None:
     assert "TOTALS" in first_column
     all_values = {cell.value for row in sheet.iter_rows() for cell in row if cell.value is not None}
     assert "Alpha brake kit restock" in all_values
+
+
+def test_render_xlsx_is_byte_identical_across_the_clock(tmp_path: Path) -> None:
+    doc = make_doc(Oem.KAIZEN, DocType.PARTS_STATEMENT)
+    first = tmp_path / "first.xlsx"
+    second = tmp_path / "second.xlsx"
+    render_xlsx(doc, "kaizen-parts_statement-xlsx-v1", RENDER_SEED, first)
+    time.sleep(CLOCK_TICK_SECONDS)
+    render_xlsx(doc, "kaizen-parts_statement-xlsx-v1", RENDER_SEED, second)
+    assert first.read_bytes() == second.read_bytes()
+
+
+def test_render_xlsx_pins_zip_and_core_timestamps(tmp_path: Path) -> None:
+    doc = make_doc(Oem.KAIZEN, DocType.PARTS_STATEMENT)
+    out_path = tmp_path / "pinned.xlsx"
+    render_xlsx(doc, "kaizen-parts_statement-xlsx-v1", RENDER_SEED, out_path)
+    with zipfile.ZipFile(out_path) as archive:
+        assert {info.date_time for info in archive.infolist()} == {XLSX_FIXED_ZIP_TIME}
+        core = archive.read(XLSX_CORE_PROPERTIES).decode("utf-8")
+    assert core.count("2026-01-01T00:00:00Z") == 2  # dcterms:created and dcterms:modified
+
+
+def test_chromium_pdf_is_byte_identical_across_the_clock(tmp_path: Path) -> None:
+    doc = make_doc(Oem.MERIDIAN, DocType.PARTS_STATEMENT)
+    first = tmp_path / "first.pdf"
+    second = tmp_path / "second.pdf"
+    with ChromiumPdfRenderer() as renderer:
+        renderer.render(doc, "meridian-parts_statement-v1", RENDER_SEED, first)
+        time.sleep(CLOCK_TICK_SECONDS)
+        renderer.render(doc, "meridian-parts_statement-v1", RENDER_SEED, second)
+    assert first.read_bytes() == second.read_bytes()
+    metadata = PdfReader(first).metadata
+    assert metadata is not None
+    assert str(metadata["/CreationDate"]) == PDF_FIXED_DATE
+    assert str(metadata["/ModDate"]) == PDF_FIXED_DATE

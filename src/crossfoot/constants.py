@@ -188,6 +188,7 @@ class IngestErrorKind(StrEnum):
     ENCRYPTED = "encrypted"
     EMPTY = "empty"
     UNRECOGNIZED = "unrecognized"
+    TOO_LARGE = "too_large"  # over the extractor's file size or row ceiling
 
 
 class ExceptionType(StrEnum):

@@ -13,16 +13,37 @@ from crossfoot.constants import CorruptionKind, DocType, QualityTier, SplitName
 from crossfoot.generator.dataset import (
     CORRUPTED_MIX,
     DATASET_MIX,
+    SPLIT_FRACTIONS,
     DatasetProfile,
     RenderHooks,
     _config_hash,
     _generate_dataset,
+    split_quotas,
 )
 from crossfoot.generator.ledger_gen import record_seed
 from crossfoot.models.manifest import DatasetManifest
 from crossfoot.models.statement import StatementDoc
 
 MASTER_SEED = 42
+# The FULL plan is 210 documents, so a 50/25/25 split lands on 105 training docs.
+EXPECTED_FULL_TRAIN = 105
+
+
+CellQuotas = dict[tuple[DocType, QualityTier], dict[SplitName, int]]
+
+
+def _planned_quotas(profile: DatasetProfile) -> CellQuotas:
+    """Walk DATASET_MIX in generator order and return each cell's split quotas."""
+    mix = DATASET_MIX[profile]
+    carry = dict.fromkeys(SPLIT_FRACTIONS, 0.0)
+    quotas: CellQuotas = {}
+    for doc_type in DocType:
+        for tier in QualityTier:
+            count = mix.get((doc_type, tier))
+            if not count:
+                continue
+            quotas[doc_type, tier], carry = split_quotas(count, carry)
+    return quotas
 
 
 class _StubPdfRenderer:
@@ -153,6 +174,52 @@ def test_splits_are_stratified_50_25_25(full_run: tuple[Path, DatasetManifest]) 
             assert counts[SplitName.TRAIN] == total // 2, key
             assert counts[SplitName.CALIBRATION] == total // 4, key
             assert counts[SplitName.TEST] == total // 4, key
+
+
+def test_full_plan_never_starves_a_split() -> None:
+    # Render-free: quotas come straight from the plan, no dataset is generated.
+    mix = DATASET_MIX[DatasetProfile.FULL]
+    for cell, quotas in _planned_quotas(DatasetProfile.FULL).items():
+        count = mix[cell]
+        assert sum(quotas.values()) == count, cell
+        if count >= 2:
+            assert quotas[SplitName.TEST] >= 1, cell
+        if count >= 3:
+            assert all(quotas[split] >= 1 for split in SplitName), cell
+
+
+def test_full_plan_quotas_hit_50_25_25() -> None:
+    totals: Counter[SplitName] = Counter()
+    for quotas in _planned_quotas(DatasetProfile.FULL).values():
+        totals.update(quotas)
+    assert sum(totals.values()) == sum(DATASET_MIX[DatasetProfile.FULL].values())
+    assert totals[SplitName.TRAIN] == EXPECTED_FULL_TRAIN
+    assert abs(totals[SplitName.CALIBRATION] - totals[SplitName.TEST]) <= 1
+
+
+def test_full_run_split_counts_match_the_plan(full_run: tuple[Path, DatasetManifest]) -> None:
+    _, manifest = full_run
+    observed: Counter[SplitName] = Counter()
+    for record in manifest.records:
+        if record.split is not None:
+            observed[record.split] += 1
+    expected: Counter[SplitName] = Counter()
+    for quotas in _planned_quotas(DatasetProfile.FULL).values():
+        expected.update(quotas)
+    assert observed == expected
+
+
+def test_floorplan_xlsx_cell_reaches_every_split(full_run: tuple[Path, DatasetManifest]) -> None:
+    # Three documents in the cell: the old ceil() rounding gave test none of them.
+    _, manifest = full_run
+    splits = {
+        record.split
+        for record in manifest.records
+        if record.truth is not None
+        and record.truth.doc_type is DocType.FLOORPLAN_STATEMENT
+        and record.quality_tier is QualityTier.XLSX
+    }
+    assert splits == set(SplitName)
 
 
 def test_roughly_two_thirds_of_docs_carry_injections(

@@ -5,9 +5,11 @@ from datetime import date
 import pytest
 
 from crossfoot.extraction.normalize import (
+    MAX_AMOUNT_CHARS,
     normalize_reference,
     parse_amount_to_cents,
     parse_date,
+    strip_control_chars,
 )
 
 
@@ -42,6 +44,38 @@ def test_parse_amount_to_cents(text: str, cents: int) -> None:
 )
 def test_parse_amount_rejects_garbage(text: str) -> None:
     assert parse_amount_to_cents(text) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "9" * 5_000,  # decimal context precision overflows on absurd input
+        "9" * (MAX_AMOUNT_CHARS + 1),
+        "$" + "1" * 40 + ".00",
+        "(" + "8" * 100 + ")",
+    ],
+)
+def test_parse_amount_returns_none_for_absurd_input(text: str) -> None:
+    assert parse_amount_to_cents(text) is None
+
+
+def test_parse_amount_accepts_the_longest_allowed_number() -> None:
+    longest = "1" * MAX_AMOUNT_CHARS
+    assert parse_amount_to_cents(longest) == int(longest) * 100
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("a\x00b", "ab"),
+        ("\x00\x01\x02clean\x1f", "clean"),
+        ("keeps\ttab", "keeps\ttab"),
+        ("drops\r\nnewlines", "dropsnewlines"),
+        ("plain", "plain"),
+    ],
+)
+def test_strip_control_chars(text: str, expected: str) -> None:
+    assert strip_control_chars(text) == expected
 
 
 @pytest.mark.parametrize(
