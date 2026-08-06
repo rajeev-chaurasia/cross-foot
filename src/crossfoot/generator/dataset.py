@@ -15,7 +15,7 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from crossfoot import __version__
-from crossfoot.constants import CorruptionKind, DocType, QualityTier, SplitName
+from crossfoot.constants import CorruptionKind, DocType, Oem, QualityTier, SplitName
 from crossfoot.generator.compose import compose_statements
 from crossfoot.generator.discrepancy import inject
 from crossfoot.generator.ledger_gen import generate_ledger, record_seed
@@ -213,11 +213,10 @@ def _plan_documents(
 
     planned: list[_PlannedDoc] = []
     for doc_type in DocType:
-        pool = list(by_type[doc_type])
-        if not pool:
+        if not by_type[doc_type]:
             continue
         rng = random.Random(record_seed(master_seed, f"assign:{doc_type}"))
-        rng.shuffle(pool)
+        pool = _interleave_by_marque(by_type[doc_type], rng)
         tiers = [
             tier
             for tier in QualityTier
@@ -232,6 +231,30 @@ def _plan_documents(
             doc = base if occurrence == 1 else _with_sequence(base, occurrence)
             planned.append(_PlannedDoc(doc=doc, tier=tier))
     return planned
+
+
+def _interleave_by_marque(
+    statements: Sequence[StatementDoc], rng: random.Random
+) -> list[StatementDoc]:
+    """Shuffle within each marque, then round-robin the marques into one pool.
+
+    Tier slots consume the pool in order, so a flat shuffle can hand a whole
+    (doc_type, tier) cell to a subset of the marques. Round-robin ordering puts
+    each marque on its own residue, which keeps every cell of four or more
+    documents covering all four marques.
+    """
+    by_marque: dict[Oem, list[StatementDoc]] = {}
+    for doc in statements:
+        by_marque.setdefault(doc.oem, []).append(doc)
+    for queue in by_marque.values():
+        rng.shuffle(queue)
+    marque_order = sorted(by_marque)
+    rng.shuffle(marque_order)
+
+    pool: list[StatementDoc] = []
+    for index in range(max(len(queue) for queue in by_marque.values())):
+        pool.extend(by_marque[oem][index] for oem in marque_order if index < len(by_marque[oem]))
+    return pool
 
 
 def _with_sequence(doc: StatementDoc, seq: int) -> StatementDoc:

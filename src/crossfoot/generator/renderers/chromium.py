@@ -14,11 +14,16 @@ from crossfoot.generator.renderers.base import (
     DOC_LINE_FIELDS,
     DOC_TITLES,
     MARQUE_BRANDING,
+    PAYABLE_DOC_TYPES,
+    format_due_date,
     format_marque_amount,
     format_marque_date,
+    format_marque_line_no,
     header_key,
     line_key,
     line_reference,
+    marque_address,
+    remit_address,
 )
 from crossfoot.models.statement import StatementDoc
 
@@ -86,7 +91,7 @@ def build_context(doc: StatementDoc) -> tuple[dict[str, object], dict[str, str]]
         amount = format_marque_amount(doc.oem, line.amount_cents)
         lines_context.append(
             {
-                "line_no": str(line.line_no),
+                "line_no": format_marque_line_no(doc.oem, line.line_no),
                 "line_date": line_date,
                 "claim_number": line.claim_number or "",
                 "ro_number": line.ro_number or "",
@@ -112,7 +117,7 @@ def build_context(doc: StatementDoc) -> tuple[dict[str, object], dict[str, str]]
     context: dict[str, object] = {
         "marque_name": branding.name,
         "marque_tagline": branding.tagline,
-        "marque_address": branding.address,
+        "marque_address": marque_address(doc.oem, doc.doc_type),
         "dealer_name": branding.dealer_name,
         "dealer_code": branding.dealer_code,
         "dealer_address": branding.dealer_address,
@@ -127,6 +132,10 @@ def build_context(doc: StatementDoc) -> tuple[dict[str, object], dict[str, str]]
         "total": total,
         "lines": lines_context,
     }
+    if doc.doc_type in PAYABLE_DOC_TYPES:
+        # Frozen contract: payable doc types also carry remittance instructions.
+        context["due_date"] = format_due_date(doc.oem, doc.statement_date)
+        context["remit_address"] = remit_address(doc.oem, doc.doc_type)
     return context, rendered
 
 

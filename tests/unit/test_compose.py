@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from crossfoot.constants import DOC_TYPE_SCHEDULES, DocType
+from crossfoot.constants import DOC_TYPE_SCHEDULES, REF_GRAMMARS, DocType, FieldName, Oem
 from crossfoot.generator.compose import DOC_LINE_TYPES, compose_statements
 from crossfoot.generator.ledger_gen import GENERATION_MONTHS, generate_ledger
 from crossfoot.models.ledger import LedgerBook
@@ -100,6 +100,8 @@ def test_statement_numbers_unique_and_marque_styled(book: LedgerBook) -> None:
         "dlr-meridian": r"MER-[A-Z]{2}-\d{6}-\d{3}",
         "dlr-northstar": r"NS\d{9}[A-Z]{2}",
         "dlr-kaizen": r"KZ-\d{6}-[A-Z]{2}\d{3}",
+        # Atlas prints a flat serial matching its REF_GRAMMARS reference style.
+        "dlr-atlas": REF_GRAMMARS[Oem.ATLAS][FieldName.CLAIM_NUMBER],
     }
     for doc in docs:
         assert re.fullmatch(styles[doc.dealer_id], doc.statement_number), doc.statement_number

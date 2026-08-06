@@ -1,4 +1,4 @@
-"""Deterministic synthetic ledger: three dealers, four months, four schedules."""
+"""Deterministic synthetic ledger: four dealers, four months, four schedules."""
 
 import calendar
 import hashlib
@@ -25,6 +25,7 @@ DEALERS: tuple[Dealer, ...] = (
     Dealer(dealer_id="dlr-meridian", name="Lakeshore Meridian of Columbus", oem=Oem.MERIDIAN),
     Dealer(dealer_id="dlr-northstar", name="Northstar Motors of Traverse City", oem=Oem.NORTHSTAR),
     Dealer(dealer_id="dlr-kaizen", name="Kaizen Auto Gallery of Bellevue", oem=Oem.KAIZEN),
+    Dealer(dealer_id="dlr-atlas", name="Iron Bend Motorplex of Dearborn", oem=Oem.ATLAS),
 )
 
 # Signed-amount convention (kept everywhere downstream): every entry books the
@@ -61,14 +62,14 @@ _OEM_CORPORATE: dict[Oem, str] = {
     Oem.MERIDIAN: "Meridian Motor Company",
     Oem.NORTHSTAR: "Northstar Automotive Group",
     Oem.KAIZEN: "Kaizen Motor Corporation",
-    Oem.ATLAS: "Atlas Motorwerke North America",
+    Oem.ATLAS: "Atlas Motor Group",
 }
 
 _OEM_CAPTIVE: dict[Oem, str] = {
     Oem.MERIDIAN: "Meridian Credit Company",
     Oem.NORTHSTAR: "Northstar Financial Services",
     Oem.KAIZEN: "Kaizen Financial Services",
-    Oem.ATLAS: "Atlas Capital North America",
+    Oem.ATLAS: "Atlas Financial Services",
 }
 
 # WMI prefixes keep the first three VIN positions marque-stable and check-digit legal.
@@ -221,7 +222,7 @@ def make_description(rng: random.Random, schedule: ScheduleType) -> str:
 
 
 def generate_ledger(master_seed: int) -> LedgerBook:
-    """Three dealers, four months of entries per schedule, all seeded per record."""
+    """Four dealers, four months of entries per schedule, all seeded per record."""
     entries: list[LedgerEntry] = []
     sequence = dict.fromkeys(ScheduleType, 0)
     for dealer in DEALERS:

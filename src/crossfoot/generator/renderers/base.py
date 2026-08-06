@@ -1,7 +1,7 @@
 """Renderer protocol plus the per-marque conventions shared by all renderers."""
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Protocol
 
@@ -9,6 +9,9 @@ from crossfoot.constants import DocType, FieldName, Oem
 from crossfoot.models.statement import StatementDoc, StatementLine
 
 CENTS_PER_DOLLAR = 100
+
+# Atlas prints a zero-padded two-digit line ordinal; the others print it plain.
+ATLAS_LINE_NO_WIDTH = 2
 
 # Locale-independent month abbreviations for the kaizen DD-MMM-YYYY convention.
 MONTH_ABBREVIATIONS: tuple[str, ...] = (
@@ -118,6 +121,7 @@ class MarqueBranding:
     dealer_name: str
     dealer_code: str
     dealer_address: str
+    net_terms_days: int
 
 
 MARQUE_BRANDING: dict[Oem, MarqueBranding] = {
@@ -128,6 +132,7 @@ MARQUE_BRANDING: dict[Oem, MarqueBranding] = {
         dealer_name="Grand Meadow Motors",
         dealer_code="GMM-2381",
         dealer_address="118 Commerce Drive, Grand Meadow, MI 48014",
+        net_terms_days=30,
     ),
     Oem.NORTHSTAR: MarqueBranding(
         name="Northstar Automotive Group",
@@ -136,6 +141,7 @@ MARQUE_BRANDING: dict[Oem, MarqueBranding] = {
         dealer_name="Lakewood Auto Center",
         dealer_code="064218",
         dealer_address="7450 Superior Route, Lakewood Heights, MI 48312",
+        net_terms_days=20,
     ),
     Oem.KAIZEN: MarqueBranding(
         name="Kaizen Motors North America",
@@ -144,17 +150,84 @@ MARQUE_BRANDING: dict[Oem, MarqueBranding] = {
         dealer_name="Cypress Plains Imports",
         dealer_code="KZ-7714",
         dealer_address="960 Delta Crossing, Cypress Plains, KY 40221",
+        net_terms_days=25,
     ),
-    # Atlas template variants land later; its branding and conventions are ready.
+    # Atlas prints in the uppercase mainframe style its designed templates use.
     Oem.ATLAS: MarqueBranding(
-        name="Atlas Consolidated Motors",
-        tagline="Carrying You Further",
-        address="500 Atlas Gateway, Iron Bend, OH 44903",
+        name="Atlas Motor Group",
+        tagline="Engineered to Endure",
+        address="ATLAS MOTOR GROUP LLC\n900 ATLAS CENTER DRIVE\nDETROIT, MI 48226",
         dealer_name="Iron Bend Motorplex",
         dealer_code="ATL-0446",
         dealer_address="2201 Foundry Road, Iron Bend, OH 44905",
+        net_terms_days=10,
     ),
 }
+
+# Doc types that bill the dealer, so they print a due date and a lockbox.
+PAYABLE_DOC_TYPES: frozenset[DocType] = frozenset(
+    {DocType.PARTS_STATEMENT, DocType.FLOORPLAN_STATEMENT}
+)
+
+# Issuing division per (marque, doc type). Only Atlas splits its inbound mail by
+# division; every other pair falls back to the single MarqueBranding.address.
+ISSUER_ADDRESSES: dict[tuple[Oem, DocType], str] = {
+    (Oem.ATLAS, DocType.WARRANTY_CREDIT_MEMO): (
+        "DEALER FINANCIAL SERVICES\nP.O. BOX 218800\nDETROIT, MI 48226-8800"
+    ),
+    (Oem.ATLAS, DocType.PARTS_STATEMENT): (
+        "PARTS DISTRIBUTION CENTER\nP.O. BOX 218400\nDETROIT, MI 48226-8400"
+    ),
+    (Oem.ATLAS, DocType.FLOORPLAN_STATEMENT): (
+        "ATLAS FINANCIAL SERVICES\nA DIVISION OF ATLAS MOTOR GROUP\n"
+        "P.O. BOX 219200\nDETROIT, MI 48226-9200"
+    ),
+    (Oem.ATLAS, DocType.INCENTIVE_STATEMENT): (
+        "SALES OPERATIONS - INCENTIVES\nP.O. BOX 218600\nDETROIT, MI 48226-8600"
+    ),
+}
+
+# Lockbox each marque collects payments in, one per payable doc type.
+REMIT_ADDRESSES: dict[tuple[Oem, DocType], str] = {
+    (Oem.MERIDIAN, DocType.PARTS_STATEMENT): (
+        "Meridian Motor Company\nParts Division Lockbox\nP.O. Box 74210\nChicago, IL 60675-4210"
+    ),
+    (Oem.MERIDIAN, DocType.FLOORPLAN_STATEMENT): (
+        "Meridian Credit Company\nFloorplan Lockbox\nP.O. Box 74580\nChicago, IL 60675-4580"
+    ),
+    (Oem.NORTHSTAR, DocType.PARTS_STATEMENT): (
+        "Northstar Automotive Group\nParts Lockbox 3120\nP.O. Box 92640\nDallas, TX 75392-2640"
+    ),
+    (Oem.NORTHSTAR, DocType.FLOORPLAN_STATEMENT): (
+        "Northstar Financial Services\nFloorplan Lockbox 3155\n"
+        "P.O. Box 92685\nDallas, TX 75392-2685"
+    ),
+    (Oem.KAIZEN, DocType.PARTS_STATEMENT): (
+        "Kaizen Motors North America\nParts Remittance Center\n"
+        "P.O. Box 60318\nAtlanta, GA 30353-0318"
+    ),
+    (Oem.KAIZEN, DocType.FLOORPLAN_STATEMENT): (
+        "Kaizen Financial Services\nFloorplan Remittance Center\n"
+        "P.O. Box 60742\nAtlanta, GA 30353-0742"
+    ),
+    (Oem.ATLAS, DocType.PARTS_STATEMENT): (
+        "ATLAS MOTOR GROUP LLC\nPARTS DIVISION LOCKBOX\nP.O. BOX 88012\nCHICAGO, IL 60680-8012"
+    ),
+    (Oem.ATLAS, DocType.FLOORPLAN_STATEMENT): (
+        "ATLAS FINANCIAL SERVICES\nFLOORPLAN LOCKBOX\nP.O. BOX 88440\nCHICAGO, IL 60680-8440"
+    ),
+}
+
+
+def marque_address(oem: Oem, doc_type: DocType) -> str:
+    """Issuing address for one doc type, defaulting to the marque address."""
+    return ISSUER_ADDRESSES.get((oem, doc_type), MARQUE_BRANDING[oem].address)
+
+
+def remit_address(oem: Oem, doc_type: DocType) -> str:
+    """Lockbox a payable doc type directs payment to."""
+    return REMIT_ADDRESSES[oem, doc_type]
+
 
 DOC_TITLES: dict[DocType, str] = {
     DocType.PARTS_STATEMENT: "Parts Statement",
@@ -176,8 +249,14 @@ def format_marque_date(oem: Oem, value: date) -> str:
         return value.isoformat()
     if oem is Oem.KAIZEN:
         return f"{value.day:02d}-{MONTH_ABBREVIATIONS[value.month - 1]}-{value.year}"
-    # meridian, and atlas until its designed variants land
+    # meridian and atlas both print MM/DD/YYYY
     return f"{value.month:02d}/{value.day:02d}/{value.year}"
+
+
+def format_due_date(oem: Oem, statement_date: date) -> str:
+    """Statement date plus the marque's net terms, in the marque date format."""
+    terms = timedelta(days=MARQUE_BRANDING[oem].net_terms_days)
+    return format_marque_date(oem, statement_date + terms)
 
 
 def format_marque_amount(oem: Oem, amount_cents: int, *, in_totals: bool = False) -> str:
@@ -185,7 +264,8 @@ def format_marque_amount(oem: Oem, amount_cents: int, *, in_totals: bool = False
 
     meridian: leading minus, dollar sign everywhere. northstar: parentheses
     negatives, dollar sign only in totals. kaizen: trailing minus, dollar sign
-    everywhere. atlas follows meridian until its designed variants land.
+    everywhere. atlas: parentheses negatives, never a dollar sign, because its
+    designed templates carry the currency in the column captions instead.
     """
     magnitude = grouped_amount(amount_cents)
     negative = amount_cents < 0
@@ -194,4 +274,13 @@ def format_marque_amount(oem: Oem, amount_cents: int, *, in_totals: bool = False
         return f"({body})" if negative else body
     if oem is Oem.KAIZEN:
         return f"${magnitude}-" if negative else f"${magnitude}"
+    if oem is Oem.ATLAS:
+        return f"({magnitude})" if negative else magnitude
     return f"-${magnitude}" if negative else f"${magnitude}"
+
+
+def format_marque_line_no(oem: Oem, line_no: int) -> str:
+    """Deterministic per-marque line ordinal; atlas zero-pads to two digits."""
+    if oem is Oem.ATLAS:
+        return f"{line_no:0{ATLAS_LINE_NO_WIDTH}d}"
+    return str(line_no)

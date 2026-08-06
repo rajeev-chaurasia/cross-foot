@@ -30,6 +30,20 @@ _TYPE_CODES: dict[DocType, str] = {
     DocType.INCENTIVE_STATEMENT: "IN",
 }
 
+# Atlas prints a flat mainframe serial rather than a structured number, so its
+# statement numbers match the AT####### grammar in REF_GRAMMARS. The offset is
+# a deterministic function of (period, doc type, dealer), which keeps serials
+# unique without any randomness.
+_ATLAS_SERIAL_PREFIX = "AT"
+_ATLAS_SERIAL_BASE = 87_000
+_ATLAS_SERIAL_WIDTH = 7
+_ATLAS_SERIAL_EPOCH = (2026, 1)
+_ATLAS_DEALER_STRIDE = 10
+_ATLAS_TYPE_OFFSETS: dict[DocType, int] = {
+    doc_type: index for index, doc_type in enumerate(DocType)
+}
+_MONTHS_PER_YEAR = 12
+
 _ADJUSTMENT_PROBABILITY = 0.15
 _ADJUSTMENT_RANGE_CENTS = (500, 40_000)
 
@@ -131,4 +145,12 @@ def _statement_number(oem: Oem, doc_type: DocType, year: int, month: int, dealer
         return f"NS{yyyymm}{dealer_num:03d}{code}"
     if oem is Oem.KAIZEN:
         return f"KZ-{yyyymm}-{code}{dealer_num:03d}"
-    return f"AT-{code}-{yyyymm}-{dealer_num:03d}"
+    return _atlas_serial(doc_type, year, month, dealer_num)
+
+
+def _atlas_serial(doc_type: DocType, year: int, month: int, dealer_num: int) -> str:
+    epoch_year, epoch_month = _ATLAS_SERIAL_EPOCH
+    periods = (year * _MONTHS_PER_YEAR + month) - (epoch_year * _MONTHS_PER_YEAR + epoch_month)
+    slot = periods * len(_ATLAS_TYPE_OFFSETS) + _ATLAS_TYPE_OFFSETS[doc_type]
+    serial = _ATLAS_SERIAL_BASE + slot * _ATLAS_DEALER_STRIDE + dealer_num
+    return f"{_ATLAS_SERIAL_PREFIX}{serial:0{_ATLAS_SERIAL_WIDTH}d}"

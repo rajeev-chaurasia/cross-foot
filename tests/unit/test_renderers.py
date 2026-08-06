@@ -2,6 +2,7 @@
 
 import time
 import zipfile
+from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
 
@@ -13,13 +14,18 @@ from pypdf import PdfReader
 from crossfoot.constants import CSV_HEADER_SYNONYMS, DocType, FieldName, LineType, Oem
 from crossfoot.generator.renderers.base import (
     DOC_LINE_FIELDS,
+    ISSUER_ADDRESSES,
     MARQUE_BRANDING,
+    PAYABLE_DOC_TYPES,
+    REMIT_ADDRESSES,
+    format_due_date,
     header_key,
     line_key,
 )
 from crossfoot.generator.renderers.chromium import (
     PDF_FIXED_DATE,
     ChromiumPdfRenderer,
+    build_context,
     render_html,
 )
 from crossfoot.generator.renderers.tabular import (
@@ -30,10 +36,14 @@ from crossfoot.generator.renderers.tabular import (
 )
 from crossfoot.models.statement import StatementDoc, StatementLine
 
-TEMPLATE_OEMS = (Oem.MERIDIAN, Oem.NORTHSTAR, Oem.KAIZEN)
 RENDER_SEED = 11
 # Long enough for a wall-clock stamp to change between two renders.
 CLOCK_TICK_SECONDS = 1.5
+# A one-page statement prints far more than this; a blank page prints less.
+MIN_PDF_CHARS = 200
+
+# The composer gives these doc types a previous balance; the others carry none.
+BALANCE_FORWARD_DOC_TYPES = frozenset({DocType.PARTS_STATEMENT, DocType.FLOORPLAN_STATEMENT})
 
 # Known-good ISO 3779 VIN (check digit X at position 9).
 SAMPLE_VIN = "1M8GDM9AXKP042788"
@@ -70,7 +80,8 @@ def make_doc(oem: Oem, doc_type: DocType) -> StatementDoc:
         ),
     )
     subtotal_cents = sum(line.amount_cents for line in lines)
-    previous_balance_cents = 55_000
+    # Mirror the composer: only balance-forward doc types carry a previous balance.
+    previous_balance_cents = 55_000 if doc_type in BALANCE_FORWARD_DOC_TYPES else None
     return StatementDoc(
         doc_id=f"doc-{doc_type}-dlr-{oem}-202607-01",
         dealer_id=f"dlr-{oem}",
@@ -83,7 +94,7 @@ def make_doc(oem: Oem, doc_type: DocType) -> StatementDoc:
         previous_balance_cents=previous_balance_cents,
         subtotal_cents=subtotal_cents,
         adjustments_cents=0,
-        total_cents=previous_balance_cents + subtotal_cents,
+        total_cents=(previous_balance_cents or 0) + subtotal_cents,
         lines=lines,
     )
 
@@ -97,16 +108,38 @@ def _expected_line_keys(doc: StatementDoc) -> set[str]:
 
 
 def _expected_pdf_keys(doc: StatementDoc) -> set[str]:
-    return _expected_line_keys(doc) | {
+    keys = _expected_line_keys(doc) | {
         header_key(FieldName.STATEMENT_NUMBER),
         header_key(FieldName.STATEMENT_DATE),
         header_key(FieldName.SUBTOTAL),
         header_key(FieldName.TOTAL),
-        header_key(FieldName.PREVIOUS_BALANCE),  # fixture always carries one
     }
+    if doc.previous_balance_cents is not None:
+        keys.add(header_key(FieldName.PREVIOUS_BALANCE))
+    return keys
 
 
-@pytest.mark.parametrize("oem", TEMPLATE_OEMS)
+@pytest.fixture(scope="module")
+def pdf_renderer() -> Iterator[ChromiumPdfRenderer]:
+    """One browser for the whole template matrix."""
+    with ChromiumPdfRenderer() as renderer:
+        yield renderer
+
+
+def _pdf_chars_and_text(path: Path) -> tuple[int, str]:
+    with pdfplumber.open(path) as pdf:
+        chars = sum(len(page.chars) for page in pdf.pages)
+        text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+    return chars, text
+
+
+def _squashed(text: str) -> str:
+    """Case-folded and whitespace-free, so CSS uppercasing, letter-spacing, and
+    column wrapping do not turn a printed value into a false negative."""
+    return "".join(text.split()).casefold()
+
+
+@pytest.mark.parametrize("oem", tuple(Oem))
 @pytest.mark.parametrize("doc_type", tuple(DocType))
 def test_every_template_renders_all_values(oem: Oem, doc_type: DocType) -> None:
     doc = make_doc(oem, doc_type)
@@ -117,18 +150,45 @@ def test_every_template_renders_all_values(oem: Oem, doc_type: DocType) -> None:
     assert MARQUE_BRANDING[oem].name in html
 
 
-def test_chromium_pdf_carries_text_layer_and_rendered_values(tmp_path: Path) -> None:
-    doc = make_doc(Oem.KAIZEN, DocType.WARRANTY_CREDIT_MEMO)
-    out_path = tmp_path / "warranty.pdf"
-    with ChromiumPdfRenderer() as renderer:
-        rendered = renderer.render(doc, "kaizen-warranty_credit_memo-v1", RENDER_SEED, out_path)
+@pytest.mark.parametrize("oem", tuple(Oem))
+@pytest.mark.parametrize("doc_type", tuple(DocType))
+def test_every_template_prints_a_readable_pdf(
+    oem: Oem, doc_type: DocType, tmp_path: Path, pdf_renderer: ChromiumPdfRenderer
+) -> None:
+    """All 16 (marque, doc_type) templates print text-bearing PDFs."""
+    doc = make_doc(oem, doc_type)
+    out_path = tmp_path / f"{oem}-{doc_type}.pdf"
+    rendered = pdf_renderer.render(doc, f"{oem}-{doc_type}-v1", RENDER_SEED, out_path)
+
     assert set(rendered) == _expected_pdf_keys(doc)
-    with pdfplumber.open(out_path) as pdf:
-        text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-    assert doc.statement_number in text
-    assert doc.lines[0].claim_number is not None
-    assert doc.lines[0].claim_number in text
-    assert rendered[header_key(FieldName.TOTAL)] in text
+    chars, text = _pdf_chars_and_text(out_path)
+    assert chars > MIN_PDF_CHARS, f"{oem} {doc_type}: only {chars} extractable chars"
+    printed = _squashed(text)
+    for key, value in rendered.items():
+        assert _squashed(value) in printed, f"{oem} {doc_type}: {key} value {value!r} not printed"
+    assert _squashed(MARQUE_BRANDING[oem].name) in printed
+
+
+@pytest.mark.parametrize("oem", tuple(Oem))
+@pytest.mark.parametrize("doc_type", tuple(PAYABLE_DOC_TYPES))
+def test_payable_doc_types_carry_due_date_and_lockbox(oem: Oem, doc_type: DocType) -> None:
+    doc = make_doc(oem, doc_type)
+    context, _ = build_context(doc)
+    assert context["due_date"] == format_due_date(oem, doc.statement_date)
+    assert context["remit_address"] == REMIT_ADDRESSES[oem, doc_type]
+
+
+@pytest.mark.parametrize("doc_type", (DocType.WARRANTY_CREDIT_MEMO, DocType.INCENTIVE_STATEMENT))
+def test_receivable_doc_types_omit_remittance_values(doc_type: DocType) -> None:
+    context, _ = build_context(make_doc(Oem.ATLAS, doc_type))
+    assert "due_date" not in context
+    assert "remit_address" not in context
+
+
+@pytest.mark.parametrize("doc_type", tuple(DocType))
+def test_atlas_prints_its_per_doc_type_issuer_address(doc_type: DocType) -> None:
+    context, _ = build_context(make_doc(Oem.ATLAS, doc_type))
+    assert context["marque_address"] == ISSUER_ADDRESSES[Oem.ATLAS, doc_type]
 
 
 def test_render_csv_covers_lines_in_truth_order(tmp_path: Path) -> None:
@@ -197,14 +257,15 @@ def test_render_xlsx_pins_zip_and_core_timestamps(tmp_path: Path) -> None:
     assert core.count("2026-01-01T00:00:00Z") == 2  # dcterms:created and dcterms:modified
 
 
-def test_chromium_pdf_is_byte_identical_across_the_clock(tmp_path: Path) -> None:
+def test_chromium_pdf_is_byte_identical_across_the_clock(
+    tmp_path: Path, pdf_renderer: ChromiumPdfRenderer
+) -> None:
     doc = make_doc(Oem.MERIDIAN, DocType.PARTS_STATEMENT)
     first = tmp_path / "first.pdf"
     second = tmp_path / "second.pdf"
-    with ChromiumPdfRenderer() as renderer:
-        renderer.render(doc, "meridian-parts_statement-v1", RENDER_SEED, first)
-        time.sleep(CLOCK_TICK_SECONDS)
-        renderer.render(doc, "meridian-parts_statement-v1", RENDER_SEED, second)
+    pdf_renderer.render(doc, "meridian-parts_statement-v1", RENDER_SEED, first)
+    time.sleep(CLOCK_TICK_SECONDS)
+    pdf_renderer.render(doc, "meridian-parts_statement-v1", RENDER_SEED, second)
     assert first.read_bytes() == second.read_bytes()
     metadata = PdfReader(first).metadata
     assert metadata is not None

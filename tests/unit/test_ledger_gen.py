@@ -72,15 +72,16 @@ def test_different_seeds_produce_different_entries() -> None:
     assert generate_ledger(MASTER_SEED).entries != generate_ledger(MASTER_SEED + 1).entries
 
 
-def test_three_dealers_with_slug_ids() -> None:
+def test_one_dealer_per_marque_with_slug_ids() -> None:
     book = generate_ledger(MASTER_SEED)
     assert book.dealers == DEALERS
     assert [dealer.dealer_id for dealer in book.dealers] == [
         "dlr-meridian",
         "dlr-northstar",
         "dlr-kaizen",
+        "dlr-atlas",
     ]
-    assert {dealer.oem for dealer in book.dealers} == {Oem.MERIDIAN, Oem.NORTHSTAR, Oem.KAIZEN}
+    assert {dealer.oem for dealer in book.dealers} == set(Oem)
 
 
 def test_entries_cover_every_dealer_schedule_month() -> None:
