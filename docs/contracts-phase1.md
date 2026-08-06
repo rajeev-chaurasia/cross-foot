@@ -73,6 +73,9 @@ arrive pre-formatted as strings; templates place them and never compute. Variabl
 - `lines`: list of objects with `line_no`, `line_date`, `claim_number`, `ro_number`,
   `vin`, `invoice_number`, `program_code`, `description`, `amount` (all strings,
   empty when absent); each doc type's template shows its relevant columns
+- Payable doc types (parts, floorplan) additionally receive `due_date` (statement date
+  plus the marque's net terms, formatted like other dates) and `remit_address`
+  (a marque lockbox constant, multi-line). Neither is a scored field.
 
 Multiple template variants per (oem, doc_type) are welcome; `template_id` in the
 manifest records which variant rendered each document. The renderer records every
