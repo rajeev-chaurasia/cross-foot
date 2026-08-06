@@ -19,7 +19,6 @@ class Provider(StrEnum):
     GROQ = "groq"
     OPENROUTER = "openrouter"
     MISTRAL = "mistral"
-    CEREBRAS = "cerebras"
 
 
 PROVIDER_BASE_URLS: dict[Provider, str] = {
@@ -27,7 +26,6 @@ PROVIDER_BASE_URLS: dict[Provider, str] = {
     Provider.GROQ: "https://api.groq.com/openai/v1",
     Provider.OPENROUTER: "https://openrouter.ai/api/v1",
     Provider.MISTRAL: "https://api.mistral.ai/v1",
-    Provider.CEREBRAS: "https://api.cerebras.ai/v1",
 }
 
 # Availability verified against each provider's model list on 2026-08-06.
@@ -38,7 +36,6 @@ PROVIDER_DEFAULT_MODELS: dict[Provider, str] = {
     Provider.GROQ: "llama-3.3-70b-versatile",
     Provider.OPENROUTER: "nvidia/nemotron-nano-12b-v2-vl:free",
     Provider.MISTRAL: "mistral-small-latest",
-    Provider.CEREBRAS: "gpt-oss-120b",
 }
 
 # Call priority: vision extraction and spillover walk this order. Gemini leads
@@ -48,7 +45,6 @@ PROVIDER_PRIORITY: tuple[Provider, ...] = (
     Provider.GROQ,
     Provider.OPENROUTER,
     Provider.MISTRAL,
-    Provider.CEREBRAS,
 )
 
 CHAT_COMPLETIONS_PATH = "/chat/completions"

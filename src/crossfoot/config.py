@@ -36,7 +36,6 @@ class Settings(BaseSettings):
     groq_api_key: str = Field(default="", validation_alias="GROQ_API_KEY")
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     mistral_api_key: str = Field(default="", validation_alias="MISTRAL_API_KEY")
-    cerebras_api_key: str = Field(default="", validation_alias="CEREBRAS_API_KEY")
 
     # Optional custom OpenAI-compatible gateway, e.g. a local Penstock.
     # When set it becomes the first profile in the pool.
@@ -55,7 +54,6 @@ class Settings(BaseSettings):
             Provider.GROQ: self.groq_api_key,
             Provider.OPENROUTER: self.openrouter_api_key,
             Provider.MISTRAL: self.mistral_api_key,
-            Provider.CEREBRAS: self.cerebras_api_key,
         }
         return keys[provider]
 
