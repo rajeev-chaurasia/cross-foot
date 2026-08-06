@@ -1,6 +1,10 @@
-"""Shared enums and named constants. Domain enums land with the Phase 1 contracts."""
+"""Shared enums and named constants: LLM providers, domain vocabulary, grammars."""
 
 from enum import StrEnum
+
+# ---------------------------------------------------------------------------
+# LLM providers
+# ---------------------------------------------------------------------------
 
 
 class LlmMode(StrEnum):
@@ -48,3 +52,215 @@ CHAT_COMPLETIONS_PATH = "/chat/completions"
 
 # Substrings that identify provider throttling headers, lowercased for matching.
 RATE_LIMIT_HEADER_MARKERS = ("ratelimit", "retry-after", "quota")
+
+# ---------------------------------------------------------------------------
+# Domain vocabulary
+# ---------------------------------------------------------------------------
+
+
+class Oem(StrEnum):
+    """Fictional marques, each styled after a real OEM's paperwork conventions.
+
+    Real brand names and logos stay out of the synthetic documents on purpose;
+    the formats are what carry the realism.
+    """
+
+    MERIDIAN = "meridian"  # Ford-style paperwork
+    NORTHSTAR = "northstar"  # GM-style
+    KAIZEN = "kaizen"  # Toyota-style
+    ATLAS = "atlas"  # Stellantis-style
+
+
+class DocType(StrEnum):
+    PARTS_STATEMENT = "parts_statement"
+    WARRANTY_CREDIT_MEMO = "warranty_credit_memo"
+    FLOORPLAN_STATEMENT = "floorplan_statement"
+    INCENTIVE_STATEMENT = "incentive_statement"
+
+
+class ScheduleType(StrEnum):
+    WARRANTY_RECEIVABLE = "warranty_receivable"
+    PARTS_PAYABLE = "parts_payable"
+    FLOORPLAN_LIABILITY = "floorplan_liability"
+    INCENTIVE_RECEIVABLE = "incentive_receivable"
+
+
+DOC_TYPE_SCHEDULES: dict[DocType, ScheduleType] = {
+    DocType.PARTS_STATEMENT: ScheduleType.PARTS_PAYABLE,
+    DocType.WARRANTY_CREDIT_MEMO: ScheduleType.WARRANTY_RECEIVABLE,
+    DocType.FLOORPLAN_STATEMENT: ScheduleType.FLOORPLAN_LIABILITY,
+    DocType.INCENTIVE_STATEMENT: ScheduleType.INCENTIVE_RECEIVABLE,
+}
+
+
+class QualityTier(StrEnum):
+    CLEAN_DIGITAL = "clean_digital"
+    SCAN_LIGHT = "scan_light"
+    SCAN_HEAVY = "scan_heavy"
+    CSV = "csv"
+    XLSX = "xlsx"
+    CORRUPTED = "corrupted"
+
+
+class CorruptionKind(StrEnum):
+    TRUNCATED_PDF = "truncated_pdf"
+    WRONG_EXTENSION = "wrong_extension"
+    EMPTY_FILE = "empty_file"
+    ENCRYPTED_PDF = "encrypted_pdf"
+    BINARY_JUNK = "binary_junk"
+
+
+class LineType(StrEnum):
+    CHARGE = "charge"
+    CREDIT = "credit"
+    ADJUSTMENT = "adjustment"
+    PAYMENT = "payment"
+
+
+class FieldName(StrEnum):
+    STATEMENT_NUMBER = "statement_number"
+    STATEMENT_DATE = "statement_date"
+    TOTAL = "total"
+    SUBTOTAL = "subtotal"
+    PREVIOUS_BALANCE = "previous_balance"
+    CLAIM_NUMBER = "claim_number"
+    RO_NUMBER = "ro_number"
+    VIN = "vin"
+    INVOICE_NUMBER = "invoice_number"
+    PROGRAM_CODE = "program_code"
+    LINE_DATE = "line_date"
+    LINE_AMOUNT = "line_amount"
+    DESCRIPTION = "description"
+
+
+class FieldFamily(StrEnum):
+    AMOUNT = "amount"
+    DATE = "date"
+    REFERENCE = "reference"
+    TEXT = "text"
+
+
+FIELD_FAMILIES: dict[FieldName, FieldFamily] = {
+    FieldName.STATEMENT_NUMBER: FieldFamily.REFERENCE,
+    FieldName.STATEMENT_DATE: FieldFamily.DATE,
+    FieldName.TOTAL: FieldFamily.AMOUNT,
+    FieldName.SUBTOTAL: FieldFamily.AMOUNT,
+    FieldName.PREVIOUS_BALANCE: FieldFamily.AMOUNT,
+    FieldName.CLAIM_NUMBER: FieldFamily.REFERENCE,
+    FieldName.RO_NUMBER: FieldFamily.REFERENCE,
+    FieldName.VIN: FieldFamily.REFERENCE,
+    FieldName.INVOICE_NUMBER: FieldFamily.REFERENCE,
+    FieldName.PROGRAM_CODE: FieldFamily.REFERENCE,
+    FieldName.LINE_DATE: FieldFamily.DATE,
+    FieldName.LINE_AMOUNT: FieldFamily.AMOUNT,
+    FieldName.DESCRIPTION: FieldFamily.TEXT,
+}
+
+
+class FieldSource(StrEnum):
+    DETERMINISTIC = "deterministic"
+    LLM_VISION = "llm_vision"
+    HUMAN = "human"
+
+
+class CropKind(StrEnum):
+    EXACT_BBOX = "exact_bbox"
+    ROW_BAND = "row_band"
+    FULL_PAGE = "full_page"
+
+
+class ReviewStatus(StrEnum):
+    AUTO_ACCEPTED = "auto_accepted"
+    NEEDS_REVIEW = "needs_review"
+    HUMAN_ACCEPTED = "human_accepted"
+    HUMAN_CORRECTED = "human_corrected"
+
+
+class ExtractionRoute(StrEnum):
+    DIGITAL_PDF = "digital_pdf"
+    SCANNED_PDF = "scanned_pdf"
+    CSV = "csv"
+    XLSX = "xlsx"
+    UNPROCESSABLE = "unprocessable"
+
+
+class IngestErrorKind(StrEnum):
+    TRUNCATED = "truncated"
+    ENCRYPTED = "encrypted"
+    EMPTY = "empty"
+    UNRECOGNIZED = "unrecognized"
+
+
+class ExceptionType(StrEnum):
+    MISSING_FROM_LEDGER = "missing_from_ledger"
+    MISSING_FROM_STATEMENT = "missing_from_statement"
+    AMOUNT_MISMATCH = "amount_mismatch"
+    DUPLICATE = "duplicate"
+    SHORT_PAY = "short_pay"
+    TIMING_DIFFERENCE = "timing_difference"
+
+
+class ExceptionStatus(StrEnum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+
+
+class ReconMode(StrEnum):
+    END_TO_END = "end_to_end"
+    ORACLE = "oracle"
+
+
+class SplitName(StrEnum):
+    TRAIN = "train"
+    CALIBRATION = "calibration"
+    TEST = "test"
+
+
+# ---------------------------------------------------------------------------
+# Reference-number grammars
+# ---------------------------------------------------------------------------
+
+# Synthetic per-marque formats modeled on real OEM conventions. The generator
+# emits values matching these patterns and the confidence validators check
+# against the same table, which is honest because the dataset is synthetic
+# and says so.
+REF_GRAMMARS: dict[Oem, dict[FieldName, str]] = {
+    Oem.MERIDIAN: {
+        FieldName.CLAIM_NUMBER: r"\d{4}[A-Z]\d{5}",
+        FieldName.RO_NUMBER: r"RO\d{6}",
+        FieldName.INVOICE_NUMBER: r"M\d{7}",
+        FieldName.PROGRAM_CODE: r"PGM-\d{4}",
+    },
+    Oem.NORTHSTAR: {
+        FieldName.CLAIM_NUMBER: r"NS\d{8}",
+        FieldName.RO_NUMBER: r"\d{6}",
+        FieldName.INVOICE_NUMBER: r"INV\d{7}",
+        FieldName.PROGRAM_CODE: r"NS-[A-Z]{2}\d{3}",
+    },
+    Oem.KAIZEN: {
+        FieldName.CLAIM_NUMBER: r"K\d{3}-\d{6}",
+        FieldName.RO_NUMBER: r"RO-\d{6}",
+        FieldName.INVOICE_NUMBER: r"\d{8}",
+        FieldName.PROGRAM_CODE: r"KZN\d{4}",
+    },
+    Oem.ATLAS: {
+        FieldName.CLAIM_NUMBER: r"AT\d{7}",
+        FieldName.RO_NUMBER: r"R\d{7}",
+        FieldName.INVOICE_NUMBER: r"AX\d{6}",
+        FieldName.PROGRAM_CODE: r"ATLAS-\d{3}",
+    },
+}
+
+# ---------------------------------------------------------------------------
+# VIN check digit (ISO 3779)
+# ---------------------------------------------------------------------------
+
+VIN_LENGTH = 17
+VIN_CHECK_DIGIT_INDEX = 8
+VIN_POSITION_WEIGHTS: tuple[int, ...] = (8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2)
+VIN_CHAR_VALUES: dict[str, int] = {
+    "0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9,
+    "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7, "H": 8,
+    "J": 1, "K": 2, "L": 3, "M": 4, "N": 5, "P": 7, "R": 9,
+    "S": 2, "T": 3, "U": 4, "V": 5, "W": 6, "X": 7, "Y": 8, "Z": 9,
+}  # fmt: skip
