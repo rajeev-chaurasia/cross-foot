@@ -3,9 +3,11 @@
 Re-frozen for the phase 2 scoring amendment in docs/contracts-phase2.md: a truth
 field is expected only when the artifact actually printed it, which the manifest
 records as a `rendered_values` key ("header:{field_name}" or "{line_no}:{field_name}").
-The scorecard gains `fields_present_in_artifact` per cell.
+The scorecard cell carries both denominators: `fields_in_truth` (the phase 1 rule)
+and `fields_expected` (the amended rule), so the change is visible rather than
+asserted.
 
-models/scorecard.py does not carry `fields_present_in_artifact` yet, so every
+models/scorecard.py does not carry `fields_in_truth` yet, so every
 assertion that depends on the amended denominator is gated on that field landing.
 The cases below where the phase 1 rule and the amended rule agree stay ungated and
 must pass against the current implementation.
@@ -43,11 +45,11 @@ metrics = pytest.importorskip("crossfoot.evals.metrics")
 
 # The amendment lands as one unit: the new per-cell field and the new denominator.
 # Presence of the field is the marker that score_fields now follows the amended rule.
-AMENDED_SCORING = "fields_present_in_artifact" in FieldAccuracyCell.model_fields
+AMENDED_SCORING = "fields_in_truth" in FieldAccuracyCell.model_fields
 
 requires_amendment = pytest.mark.skipif(
     not AMENDED_SCORING,
-    reason="scoring amendment pending: FieldAccuracyCell has no fields_present_in_artifact",
+    reason="scoring amendment pending: FieldAccuracyCell has no fields_in_truth",
 )
 
 DOC_A = "doc-parts_statement-dlr-meridian-202607-01"
@@ -742,8 +744,8 @@ _LINE_ATTRS: dict[FieldName, str] = {
 
 
 def test_every_rendered_key_names_a_populated_truth_field() -> None:
-    # The fixtures never print a key the truth doc has no value for, which is why
-    # fields_present_in_artifact equals fields_expected in every cell below.
+    # The fixtures never print a key the truth doc has no value for, so every
+    # printed key contributes to fields_expected in the cells below.
     for record in MANIFEST.records:
         truth = record.truth
         assert truth is not None

@@ -21,8 +21,11 @@ its key (`header:{field_name}` or `{line_no}:{field_name}`). Everything else in
 `score_fields` is unchanged.
 
 This is a real measurement change, not a cosmetic one, so it is called out in the
-README methodology section rather than quietly applied. The scorecard gains
-`fields_present_in_artifact` per cell so a reader can see the denominator move.
+README methodology section rather than quietly applied. To make the change visible
+rather than merely asserted, the scorecard cell carries both denominators:
+`fields_in_truth` (every populated truth field, the phase 1 rule) and
+`fields_expected` (only those the artifact printed, the amended rule). A reader sees
+the two numbers side by side and can judge the change instead of taking it on trust.
 
 ## LLM strategy
 
@@ -241,6 +244,57 @@ length is a `cooldown_seconds` constructor parameter, not a constant.
 `llm/cache.py` has no direct contract test yet; its behavior is currently observed
 through the ledger (a cache hit records zero marginal tokens and `cached = True`).
 Direct tests land with the implementation.
+
+### Scoring, second pass
+
+- `fields_present_in_artifact` is dropped. Under the amended rule it would always equal
+  `fields_expected` and show a reader nothing. `fields_in_truth` replaces it and does
+  the job the column was meant to do.
+- `fields_extracted` keeps counting extracted fields that resolve to any truth field,
+  printed or not, so it can exceed `fields_expected` in the rare case where an
+  extractor recovers a value the artifact never printed. The current tabular extractor
+  cannot do this (it only reads columns that exist), so the case is synthetic today.
+- New cell field `fields_spurious`: extracted fields that resolve to no truth field at
+  all. This is the hallucination counter, and it matters once the vision path lands.
+
+### Reconciliation, second pass
+
+- SHORT_PAY dollar impact is positive: `ledger_amount_cents - statement_amount_cents`,
+  the amount the factory withheld. AMOUNT_MISMATCH stays signed statement minus ledger.
+  They are named separately because the sign convention differs.
+- Tie-breaking: with weights 0.5, 0.35, 0.15 and the stated similarity ranges, an exact
+  score tie can only occur when amount-exactness and date proximity are already equal,
+  so `line_no` is the only reachable key. The other two stay in the implementation as
+  defensive ordering and are documented as unreachable rather than removed.
+- A pass 3 fuzzy match whose amounts differ still emits AMOUNT_MISMATCH or SHORT_PAY
+  by the pass 2 rules. Matching and exception classification are independent: matching
+  decides which ledger entry a line belongs to, classification decides what is wrong
+  with it.
+- `crossfoot_ok` uses the same arithmetic as `StatementDoc.crossfoot_delta_cents()`,
+  including `previous_balance_cents`, so balance-forward documents are handled.
+
+### Vision extraction, second pass
+
+After a failed repair retry the document yields zero extracted fields, sets
+`route = UNPROCESSABLE` with `IngestError(kind=UNRECOGNIZED)`, and increments
+`structured_output_failures`. The earlier phrasing about marking "every field" assumed
+fields that do not exist when parsing never succeeded.
+
+### Frozen signatures
+
+The test-writer pinned the smallest surface expressing the frozen behavior, and those
+module docstrings in `tests/contract/test_llm_vision.py`, `test_confidence.py`, and
+`test_reconcile.py` are now binding. Implementations conform to them; changes route
+through the maintainer and re-freeze. Key entry points:
+
+- `llm_vision.VisionExtractor(client).extract_document(...) -> ExtractedDocument` plus
+  `response_model_for(doc_type)` and a `structured_output_failures` counter.
+- `confidence.signals.attach_signals(doc, context)`, `confidence.scorer.fit/encode`,
+  `confidence.calibration.fit_scorers/choose_thresholds/reliability_bins/
+  expected_calibration_error` with `SplitDisciplineError` guarding split misuse.
+- `reconcile.engine.reconcile(doc, book, mode, run_id, now)` returning matches and
+  exceptions, taking a `StatementDoc` so oracle mode and end to end mode run the same
+  code over the same shape.
 
 ## Boundaries and determinism
 
