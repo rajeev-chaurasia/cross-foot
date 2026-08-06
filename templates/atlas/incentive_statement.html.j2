@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ marque_name }} - {{ doc_title }} {{ statement_number }}</title>
+<style>
+:root { --sans: Arial, "Helvetica Neue", Helvetica, sans-serif; --mono: "Courier New", Courier, monospace; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: var(--sans); font-size: 8pt; color: #000; line-height: 1.25; }
+
+@page {
+  size: Letter;
+  margin: 0.45in 0.5in 0.6in 0.5in;
+  @top-right { content: "STMT {{ statement_number }}  DLR {{ dealer_code }}"; font: 6.5pt "Courier New", Courier, monospace; color: #333; }
+  @bottom-left { content: "FORM AMG-317IN (REV 01/25)"; font: 6pt "Courier New", Courier, monospace; color: #333; }
+  @bottom-right { content: "PAGE " counter(page) " OF " counter(pages); font: 6.5pt "Courier New", Courier, monospace; color: #333; }
+}
+
+/* screen-only paper preview; print output is untouched */
+@media screen {
+  html { background: #4d5156; }
+  .sheet { width: 8.5in; min-height: 11in; margin: 24px auto; padding: 0.45in 0.5in 0.6in 0.5in; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.55); }
+}
+@media print {
+  .sheet { width: auto; margin: 0; padding: 0; background: none; }
+}
+
+.sysline { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 6pt; color: #333; letter-spacing: .02em; margin-bottom: 6pt; }
+
+.lh { display: flex; align-items: flex-start; justify-content: space-between; gap: 12pt; }
+.lh-brand { display: flex; gap: 8pt; align-items: flex-start; }
+.lh-mark { flex: 0 0 auto; }
+.lh-name { font-size: 13pt; font-weight: bold; letter-spacing: .26em; line-height: 1; padding-top: 2pt; text-transform: uppercase; }
+.lh-tag { font-size: 5.5pt; letter-spacing: .3em; margin-top: 3pt; color: #222; text-transform: uppercase; }
+.lh-addr { font-size: 6.5pt; color: #333; margin-top: 5pt; white-space: pre-line; line-height: 1.35; text-transform: uppercase; }
+.lh-right { text-align: right; flex: 0 0 auto; }
+.doc-title { display: inline-block; border: 1.6pt solid #000; padding: 4pt 10pt; font-size: 11pt; font-weight: bold; letter-spacing: .12em; text-transform: uppercase; }
+.doc-copy { font-size: 5.8pt; letter-spacing: .14em; margin-top: 3.5pt; color: #222; }
+.doc-form { font-family: var(--mono); font-size: 6pt; color: #333; margin-top: 2pt; }
+.rule { border-top: 2.2pt solid #000; border-bottom: .6pt solid #000; height: 2.6pt; margin-top: 6pt; }
+
+table.meta { width: 100%; border-collapse: collapse; margin-top: 8pt; }
+table.meta td { border: .9pt solid #000; padding: 2.5pt 5pt 3pt; }
+.meta .lbl { display: block; font-size: 5.6pt; font-weight: bold; letter-spacing: .1em; color: #333; margin-bottom: 1.5pt; }
+.meta .val { display: block; font-family: var(--mono); font-size: 8.5pt; font-weight: bold; text-transform: uppercase; }
+
+.parties { display: flex; gap: 8pt; margin-top: 8pt; }
+.pbox { flex: 1 1 50%; border: .9pt solid #000; }
+.pbox h3 { font-size: 5.8pt; font-weight: bold; letter-spacing: .12em; padding: 2pt 5pt; border-bottom: .6pt solid #000; background: #ececec; }
+.pbox .pbody { font-family: var(--mono); font-size: 7.8pt; text-transform: uppercase; white-space: pre-line; padding: 4pt 6pt 5pt; min-height: 52pt; line-height: 1.4; }
+
+.tablecap { display: flex; justify-content: space-between; align-items: baseline; margin: 10pt 0 2.5pt; }
+.tablecap .t1 { font-size: 6.6pt; font-weight: bold; letter-spacing: .1em; }
+.tablecap .t2 { font-family: var(--mono); font-size: 6pt; color: #333; }
+table.lines { width: 100%; border-collapse: collapse; border: 1.2pt solid #000; }
+table.lines thead { display: table-header-group; }
+table.lines th { background: #e6e6e6; font-size: 6.3pt; font-weight: bold; letter-spacing: .06em; text-align: left; padding: 3pt 4pt; border: .6pt solid #000; border-bottom: 1.2pt solid #000; }
+table.lines td { font-family: var(--mono); font-size: 7.6pt; text-transform: uppercase; padding: 2.4pt 4pt; border: .5pt solid #000; white-space: nowrap; }
+table.lines td.desc { white-space: normal; }
+table.lines th.num, table.lines td.num { text-align: right; }
+table.lines td.ctr, table.lines th.ctr { text-align: center; }
+table.lines tr { page-break-inside: avoid; }
+
+.totwrap { display: flex; gap: 8pt; margin-top: 8pt; page-break-inside: avoid; align-items: stretch; }
+.remarks { flex: 1 1 auto; border: .9pt solid #000; }
+.remarks h3 { font-size: 5.8pt; font-weight: bold; letter-spacing: .12em; padding: 2pt 5pt; border-bottom: .6pt solid #000; background: #ececec; }
+.remarks .rbody { font-family: var(--mono); font-size: 6.8pt; padding: 4pt 6pt; line-height: 1.5; }
+table.totals { flex: 0 0 220pt; border-collapse: collapse; align-self: flex-start; width: 220pt; }
+table.totals td { padding: 3pt 6pt; border: .9pt solid #000; }
+table.totals .tl { font-size: 6.6pt; font-weight: bold; letter-spacing: .08em; }
+table.totals .tv { font-family: var(--mono); font-size: 8.5pt; text-align: right; white-space: nowrap; }
+table.totals tr.grand td { border-top: 2.6pt double #000; background: #e6e6e6; }
+table.totals tr.grand .tl { font-size: 7.4pt; }
+table.totals tr.grand .tv { font-size: 9.5pt; font-weight: bold; }
+
+.endline { text-align: center; font-family: var(--mono); font-size: 7pt; letter-spacing: .18em; margin-top: 12pt; color: #222; }
+
+.stubwrap { margin-top: 16pt; page-break-inside: avoid; }
+.cutlbl { text-align: right; font-size: 5.4pt; letter-spacing: .16em; color: #333; margin-bottom: 1.5pt; }
+.cutline { border-top: 1pt dashed #000; }
+.stub { padding-top: 8pt; }
+.stub-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10pt; }
+.stub-id { flex: 0 0 auto; }
+.stub-id .st1 { display: flex; align-items: center; gap: 5pt; font-size: 8.5pt; font-weight: bold; letter-spacing: .18em; }
+.stub-id .st2 { font-size: 5.6pt; letter-spacing: .14em; color: #333; margin-top: 2.5pt; text-transform: uppercase; }
+table.stubgrid { border-collapse: collapse; flex: 0 0 auto; }
+table.stubgrid td { border: .9pt solid #000; padding: 2.5pt 7pt 3pt; }
+.stubgrid .lbl { display: block; font-size: 5.4pt; font-weight: bold; letter-spacing: .1em; color: #333; margin-bottom: 1.5pt; }
+.stubgrid .val { display: block; font-family: var(--mono); font-size: 8.5pt; font-weight: bold; text-transform: uppercase; }
+.stub-mid { display: flex; gap: 10pt; margin-top: 8pt; align-items: stretch; }
+.stub-addr { flex: 1 1 auto; }
+.stub-addr h4 { font-size: 5.6pt; font-weight: bold; letter-spacing: .12em; color: #333; margin-bottom: 2pt; }
+.stub-addr .sa { font-family: var(--mono); font-size: 7.4pt; text-transform: uppercase; white-space: pre-line; line-height: 1.4; }
+.nopay { flex: 0 0 auto; border: 1.8pt solid #000; padding: 6pt 14pt; text-align: center; align-self: center; }
+.nopay .n1 { font-size: 10.5pt; font-weight: bold; letter-spacing: .1em; }
+.nopay .n2 { font-size: 5.8pt; letter-spacing: .1em; margin-top: 2.5pt; color: #222; }
+.distrib { text-align: center; font-size: 5.4pt; letter-spacing: .1em; color: #444; margin-top: 8pt; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="sysline">
+    <span>PGM AMG317IN &nbsp;SYS ISO-PROD &nbsp;RUN {{ statement_date }} 05:02:19 ET</span>
+    <span>OPER BATCH &nbsp;JOB 027745</span>
+  </div>
+
+  <header class="lh">
+    <div class="lh-brand">
+      <div class="lh-mark">
+        <svg width="36" height="36" viewBox="0 0 40 40" aria-hidden="true">
+          <rect x="6.5" y="6.5" width="27" height="27" transform="rotate(45 20 20)" fill="#000"></rect>
+          <text x="20" y="26.2" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="16.5" font-weight="bold" fill="#fff">A</text>
+        </svg>
+      </div>
+      <div>
+        <div class="lh-name">{{ marque_name }}</div>
+        <div class="lh-tag">{{ marque_tagline }}</div>
+        <div class="lh-addr">{{ marque_address }}</div>
+      </div>
+    </div>
+    <div class="lh-right">
+      <div class="doc-title">{{ doc_title }}</div>
+      <div class="doc-copy">ORIGINAL - DEALER COPY</div>
+      <div class="doc-form">FORM AMG-317IN (REV 01/25)</div>
+    </div>
+  </header>
+  <div class="rule"></div>
+
+  <table class="meta">
+    <tr>
+      <td style="width:22%"><span class="lbl">STATEMENT NO</span><span class="val">{{ statement_number }}</span></td>
+      <td style="width:19%"><span class="lbl">STATEMENT DATE</span><span class="val">{{ statement_date }}</span></td>
+      <td style="width:19%"><span class="lbl">PERIOD BEGIN</span><span class="val">{{ period_start }}</span></td>
+      <td style="width:19%"><span class="lbl">PERIOD END</span><span class="val">{{ period_end }}</span></td>
+      <td style="width:21%"><span class="lbl">DEALER CODE</span><span class="val">{{ dealer_code }}</span></td>
+    </tr>
+  </table>
+
+  <div class="parties">
+    <div class="pbox">
+      <h3>DEALER</h3>
+      <div class="pbody">{{ dealer_name }}
+{{ dealer_address }}</div>
+    </div>
+    <div class="pbox">
+      <h3>ISSUED BY / DIRECT INQUIRIES TO</h3>
+      <div class="pbody">{{ marque_address }}
+TEL 800-555-0147 OPT 4  REF DLR {{ dealer_code }}</div>
+    </div>
+  </div>
+
+  <div class="tablecap">
+    <span class="t1">INCENTIVE EARNINGS SETTLED THIS PERIOD</span>
+    <span class="t2">ALL AMOUNTS IN US DOLLARS. CLAWBACKS SHOWN IN PARENTHESES.</span>
+  </div>
+  <table class="lines">
+    <colgroup>
+      <col style="width:26pt"><col style="width:64pt"><col style="width:100pt"><col style="width:58pt"><col><col style="width:64pt">
+    </colgroup>
+    <thead>
+      <tr>
+        <th class="ctr">LN</th><th>PROGRAM CODE</th><th>VIN</th><th class="ctr">DATE</th><th>DESCRIPTION</th><th class="num">AMOUNT</th>
+      </tr>
+    </thead>
+    <tbody>
+{% for line in lines %}      <tr><td class="ctr">{{ line.line_no }}</td><td>{{ line.program_code }}</td><td>{{ line.vin }}</td><td class="ctr">{{ line.line_date }}</td><td class="desc">{{ line.description }}</td><td class="num">{{ line.amount }}</td></tr>
+{% endfor %}    </tbody>
+  </table>
+
+  <div class="totwrap">
+    <div class="remarks">
+      <h3>REMARKS</h3>
+      <div class="rbody">CLAWBACKS SHOWN IN PARENTHESES PER PROGRAM RULES SEC 5.1<br>
+ADJUSTMENTS REFLECT PROGRAM AUDIT RECALCULATIONS<br>
+NET CREDIT APPLIED TO OPEN PARTS ACCOUNT WITHIN 5 BUSINESS DAYS<br>
+PROGRAM CLAIMS SUBJECT TO AUDIT FOR 12 MONTHS FROM PAYMENT DATE</div>
+    </div>
+    <table class="totals">
+      <tr><td class="tl">SUBTOTAL</td><td class="tv">{{ subtotal }}</td></tr>
+      <tr><td class="tl">ADJUSTMENTS</td><td class="tv">{{ adjustments }}</td></tr>
+      <tr class="grand"><td class="tl">TOTAL CREDIT</td><td class="tv">{{ total }}</td></tr>
+    </table>
+  </div>
+
+  <div class="endline">*** END OF STATEMENT {{ statement_number }} ***</div>
+
+  <div class="stubwrap">
+    <div class="cutlbl">DETACH AND RETAIN FOR YOUR RECORDS</div>
+    <div class="cutline"></div>
+    <div class="stub">
+      <div class="stub-top">
+        <div class="stub-id">
+          <div class="st1">
+            <svg width="14" height="14" viewBox="0 0 40 40" aria-hidden="true"><rect x="6.5" y="6.5" width="27" height="27" transform="rotate(45 20 20)" fill="#000"></rect></svg>
+            <span>REMITTANCE ADVICE</span>
+          </div>
+          <div class="st2">{{ marque_name }} - {{ doc_title }}</div>
+        </div>
+        <table class="stubgrid">
+          <tr>
+            <td><span class="lbl">DEALER CODE</span><span class="val">{{ dealer_code }}</span></td>
+            <td><span class="lbl">STATEMENT NO</span><span class="val">{{ statement_number }}</span></td>
+            <td><span class="lbl">STATEMENT DATE</span><span class="val">{{ statement_date }}</span></td>
+            <td><span class="lbl">TOTAL CREDIT</span><span class="val">{{ total }}</span></td>
+          </tr>
+        </table>
+      </div>
+      <div class="stub-mid">
+        <div class="stub-addr">
+          <h4>DEALER</h4>
+          <div class="sa">{{ dealer_name }}
+{{ dealer_address }}</div>
+        </div>
+        <div class="stub-addr">
+          <h4>DIRECT CORRESPONDENCE TO</h4>
+          <div class="sa">{{ marque_address }}</div>
+        </div>
+        <div class="nopay">
+          <div class="n1">NO PAYMENT DUE</div>
+          <div class="n2">CREDIT TO PARTS ACCOUNT. DO NOT REMIT.</div>
+        </div>
+      </div>
+      <div class="distrib">DISTRIBUTION: WHITE - DEALER &nbsp;/&nbsp; CANARY - ZONE OFFICE &nbsp;/&nbsp; PINK - CENTRAL FILE</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
