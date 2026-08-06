@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_title }} {{ statement_number }}</title>
+<style>
+  @page { size: Letter; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, "Segoe UI", sans-serif;
+    font-size: 10pt; color: #16181d; line-height: 1.45;
+  }
+  .masthead {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    border-bottom: 2px solid #14539a; padding-bottom: 12px;
+  }
+  .brand { display: flex; gap: 10px; align-items: center; }
+  .logo-mark {
+    width: 34px; height: 34px; border-radius: 50% 50% 4px 50%;
+    background: #14539a; color: #ffffff; display: flex; align-items: center;
+    justify-content: center; font-size: 16pt; font-weight: 700;
+  }
+  .brand-name { font-size: 13pt; font-weight: 700; letter-spacing: 0.02em; }
+  .brand-sub { font-size: 8pt; color: #6b7280; }
+  .doc-meta { text-align: right; }
+  .doc-title { font-size: 14pt; font-weight: 300; letter-spacing: 0.12em; color: #14539a; }
+  .meta-line { font-size: 9pt; color: #3f4650; }
+  .meta-line strong { color: #16181d; font-weight: 600; }
+  .parties { display: flex; justify-content: space-between; margin: 14px 0 18px; font-size: 9pt; }
+  .party-label {
+    font-size: 7.5pt; color: #6b7280; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  table.lines { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th {
+    font-size: 8pt; color: #6b7280; letter-spacing: 0.06em; text-transform: uppercase;
+    text-align: left; padding: 6px 6px; border-bottom: 1.5px solid #16181d;
+  }
+  td { padding: 5px 6px; border-bottom: 1px solid #d9dde3; vertical-align: top; }
+  th.num, td.num { text-align: right; }
+  td.ref { font-size: 9pt; white-space: nowrap; }
+  .totals { margin-top: 14px; margin-left: auto; width: 46%; page-break-inside: avoid; }
+  .total-row { display: flex; justify-content: space-between; padding: 3px 8px; font-size: 9.5pt; }
+  .total-row.grand {
+    border-top: 2px solid #14539a; margin-top: 4px; padding-top: 6px;
+    font-size: 11pt; font-weight: 700;
+  }
+  .fine-print {
+    margin-top: 26px; font-size: 7.5pt; color: #6b7280;
+    border-top: 1px solid #d9dde3; padding-top: 8px;
+  }
+</style>
+</head>
+<body>
+  <header class="masthead">
+    <div class="brand">
+      <div class="logo-mark">M</div>
+      <div>
+        <div class="brand-name">{{ marque_name }}</div>
+        <div class="brand-sub">{{ marque_tagline }} | {{ marque_address }}</div>
+      </div>
+    </div>
+    <div class="doc-meta">
+      <div class="doc-title">{{ doc_title }}</div>
+      <div class="meta-line">Memo <strong>{{ statement_number }}</strong></div>
+      <div class="meta-line">Issued <strong>{{ statement_date }}</strong></div>
+      <div class="meta-line">Period {{ period_start }} to {{ period_end }}</div>
+    </div>
+  </header>
+  <section class="parties">
+    <div>
+      <div class="party-label">Credited to</div>
+      <div><strong>{{ dealer_name }}</strong> (Dealer {{ dealer_code }})</div>
+      <div>{{ dealer_address }}</div>
+    </div>
+    <div>
+      <div class="party-label">Issued by</div>
+      <div>{{ marque_name }}, Warranty Operations</div>
+    </div>
+  </section>
+  <table class="lines">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Claim</th>
+        <th>RO</th>
+        <th>VIN</th>
+        <th>Description</th>
+        <th class="num">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+      <tr>
+        <td>{{ line.line_date }}</td>
+        <td class="ref">{{ line.claim_number }}</td>
+        <td class="ref">{{ line.ro_number }}</td>
+        <td class="ref">{{ line.vin }}</td>
+        <td>{{ line.description }}</td>
+        <td class="num">{{ line.amount }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <section class="totals">
+    {% if previous_balance %}
+    <div class="total-row"><span>Previous balance</span><span>{{ previous_balance }}</span></div>
+    {% endif %}
+    <div class="total-row"><span>Subtotal</span><span>{{ subtotal }}</span></div>
+    {% if adjustments %}
+    <div class="total-row"><span>Adjustments</span><span>{{ adjustments }}</span></div>
+    {% endif %}
+    <div class="total-row grand"><span>Memo total</span><span>{{ total }}</span></div>
+  </section>
+  <footer class="fine-print">
+    Warranty claim credits approved for the period shown. Disputed claims must be
+    resubmitted through the dealer warranty portal within 60 days.
+  </footer>
+</body>
+</html>

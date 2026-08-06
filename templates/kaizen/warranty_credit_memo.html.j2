@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_title }} {{ statement_number }}</title>
+<style>
+  @page { size: Letter; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; }
+  body {
+    font-family: Georgia, "Times New Roman", Times, serif;
+    font-size: 10pt; color: #201d1a; line-height: 1.5;
+  }
+  .letterhead {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    border-bottom: 3px solid #8c1c13; padding-bottom: 10px;
+  }
+  .brand { display: flex; gap: 12px; align-items: center; }
+  .k-mark {
+    width: 30px; height: 30px; background: #8c1c13; transform: rotate(45deg);
+    display: flex; align-items: center; justify-content: center; margin: 4px;
+  }
+  .k-mark span {
+    transform: rotate(-45deg); color: #ffffff; font-weight: 700; font-size: 13pt;
+  }
+  .brand-name { font-size: 14pt; font-weight: 700; }
+  .brand-tag { font-size: 9pt; font-style: italic; color: #6b6257; }
+  .brand-addr { font-size: 8pt; color: #6b6257; }
+  .doc-block { text-align: right; }
+  .doc-title { font-size: 13pt; font-weight: 700; color: #8c1c13; }
+  .doc-line { font-size: 9pt; }
+  .account { margin: 12px 0 16px; font-size: 9.5pt; }
+  .account .label { font-style: italic; color: #6b6257; }
+  table.lines { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th {
+    font-size: 8.5pt; font-style: italic; text-align: left; padding: 5px 6px;
+    border-bottom: 1px solid #8c1c13; font-weight: 600;
+  }
+  td { padding: 5px 6px; vertical-align: top; }
+  tbody tr:nth-child(even) { background: #f6f1e7; }
+  th.num, td.num { text-align: right; }
+  td.ref { white-space: nowrap; font-size: 9pt; }
+  .totals { margin-top: 14px; margin-left: auto; width: 44%; page-break-inside: avoid; }
+  .total-row {
+    display: flex; justify-content: space-between; padding: 2px 8px; font-size: 10pt;
+  }
+  .total-row.grand {
+    border-top: 1px solid #8c1c13; border-bottom: 3px double #8c1c13;
+    margin-top: 4px; padding: 5px 8px; font-weight: 700; font-size: 11pt;
+  }
+  .stub {
+    margin-top: 30px; border-top: 1px dashed #6b6257; padding-top: 8px;
+    page-break-inside: avoid; font-size: 9pt;
+  }
+  .stub-note {
+    text-align: center; font-style: italic; color: #6b6257; font-size: 8pt;
+    margin-bottom: 8px;
+  }
+  .stub-grid { display: flex; justify-content: space-between; gap: 18px; }
+  .stub-grid .cell:last-child { max-width: 38%; }
+  .stub-grid .cell .label { font-style: italic; color: #6b6257; font-size: 8pt; }
+</style>
+</head>
+<body>
+  <header class="letterhead">
+    <div class="brand">
+      <div class="k-mark"><span>K</span></div>
+      <div>
+        <div class="brand-name">{{ marque_name }}</div>
+        <div class="brand-tag">{{ marque_tagline }}</div>
+        <div class="brand-addr">{{ marque_address }}</div>
+      </div>
+    </div>
+    <div class="doc-block">
+      <div class="doc-title">{{ doc_title }}</div>
+      <div class="doc-line">No. {{ statement_number }}</div>
+      <div class="doc-line">Dated {{ statement_date }}</div>
+      <div class="doc-line">Covering {{ period_start }} through {{ period_end }}</div>
+    </div>
+  </header>
+  <section class="account">
+    <span class="label">Credit issued to</span>
+    <strong>{{ dealer_name }}</strong>, dealer code {{ dealer_code }},
+    {{ dealer_address }}
+  </section>
+  <table class="lines">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Description</th>
+        <th>Claim</th>
+        <th>RO</th>
+        <th>VIN</th>
+        <th class="num">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+      <tr>
+        <td>{{ line.line_date }}</td>
+        <td>{{ line.description }}</td>
+        <td class="ref">{{ line.claim_number }}</td>
+        <td class="ref">{{ line.ro_number }}</td>
+        <td class="ref">{{ line.vin }}</td>
+        <td class="num">{{ line.amount }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <section class="totals">
+    {% if previous_balance %}
+    <div class="total-row"><span>Balance forward</span><span>{{ previous_balance }}</span></div>
+    {% endif %}
+    <div class="total-row"><span>Subtotal</span><span>{{ subtotal }}</span></div>
+    {% if adjustments %}
+    <div class="total-row"><span>Adjustments</span><span>{{ adjustments }}</span></div>
+    {% endif %}
+    <div class="total-row grand"><span>Memo total</span><span>{{ total }}</span></div>
+  </section>
+  <section class="stub">
+    <div class="stub-note">Retain this portion for your dealership records</div>
+    <div class="stub-grid">
+      <div class="cell">
+        <div class="label">Dealer</div>
+        <div>{{ dealer_name }} ({{ dealer_code }})</div>
+      </div>
+      <div class="cell">
+        <div class="label">Memo</div>
+        <div>{{ statement_number }}</div>
+      </div>
+      <div class="cell">
+        <div class="label">Memo total</div>
+        <div><strong>{{ total }}</strong></div>
+      </div>
+      <div class="cell">
+        <div class="label">Issued by</div>
+        <div>{{ marque_name }}, {{ marque_address }}</div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>
