@@ -97,5 +97,27 @@ def eval(
     typer.echo(str(out_path))
 
 
+@app.command()
+def gen(
+    seed: Annotated[
+        int, typer.Option(help="Master seed; the same seed reproduces the same bytes.")
+    ] = 42,
+    out: Annotated[
+        Path, typer.Option(help="Output directory for the dataset.")
+    ] = DEFAULT_DATASET_DIR,
+    profile: Annotated[str, typer.Option(help="Dataset profile: full or small.")] = "full",
+) -> None:
+    """Generate the synthetic dealer statement dataset."""
+    from crossfoot.generator.dataset import DatasetProfile, generate_dataset
+
+    try:
+        chosen = DatasetProfile(profile)
+    except ValueError as error:
+        allowed = ", ".join(DatasetProfile)
+        raise typer.BadParameter(f"profile must be one of: {allowed}") from error
+    manifest = generate_dataset(master_seed=seed, out_dir=out, profile=chosen)
+    typer.echo(f"Wrote {len(manifest.records)} records to {out}")
+
+
 def main() -> None:
     app()
