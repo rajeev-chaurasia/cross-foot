@@ -52,6 +52,20 @@ CHAT_COMPLETIONS_PATH = "/chat/completions"
 # Substrings that identify provider throttling headers, lowercased for matching.
 RATE_LIMIT_HEADER_MARKERS = ("ratelimit", "retry-after", "quota")
 
+# Price table version 2026-08-06. Values are (prompt, completion) list prices in
+# microusd per million tokens, keyed by a model-name pattern matched as a
+# case-insensitive substring; the longest matching pattern wins. Free tiers bill
+# nothing, so the ledger stores this list-price equivalent beside the actual cost
+# and the scorecard publishes a cost per document that means something. Entries
+# not confirmed against the provider's public pricing page are marked below.
+MODEL_LIST_PRICES_MICROUSD_PER_MTOK: dict[str, tuple[int, int]] = {
+    "gemini-3.5-flash": (300_000, 2_500_000),  # unverified
+    "gemini-3.5-pro": (1_250_000, 10_000_000),  # unverified
+    "llama-3.3-70b-versatile": (590_000, 790_000),  # unverified
+    "nemotron-nano-12b-v2-vl": (100_000, 400_000),  # unverified
+    "mistral-small": (200_000, 600_000),  # unverified
+}
+
 # ---------------------------------------------------------------------------
 # Domain vocabulary
 # ---------------------------------------------------------------------------
