@@ -874,27 +874,31 @@ def test_document_that_printed_nothing_produces_no_cells() -> None:
     assert metrics.score_fields([EXTRACTED_A], blank, SplitName.TRAIN) == ()
 
 
-def _present_in_artifact(cell: FieldAccuracyCell) -> int:
+def _fields_in_truth(cell: FieldAccuracyCell) -> int:
     # Read through model_dump so the assertion also proves the count is published
     # in the scorecard JSON, and so this file type checks before the field lands.
-    value = cell.model_dump()["fields_present_in_artifact"]
+    value = cell.model_dump()["fields_in_truth"]
     assert isinstance(value, int)
     return value
 
 
 @requires_amendment
-def test_fields_present_in_artifact_matches_the_new_denominator() -> None:
-    # Every rendered key in these fixtures names a populated truth field, so the
-    # published "present in artifact" count equals the amended denominator and a
-    # reader can see it against the phase 1 numbers in the README methodology note.
+def test_both_denominators_are_published_and_differ() -> None:
+    # The point of carrying two denominators is that a reader can see the amendment
+    # move the number. fields_in_truth keeps the phase 1 rule (every populated truth
+    # field); fields_expected counts only what the artifact printed. Truth is always
+    # a superset, and the tabular fixtures print no header fields at all, so at least
+    # one cell must show a strictly larger truth count. Equality everywhere would mean
+    # the amendment changed nothing and the column is decoration.
     cells = metrics.score_fields(
         [EXTRACTED_A, EXTRACTED_B, EXTRACTED_C, EXTRACTED_D], MANIFEST, SplitName.TRAIN
     )
     by_key = _field_cells_by_key(cells)
     for key, (n_expected, _extracted, _canonical, _raw) in EXPECTED_TRAIN_CELLS.items():
         cell = by_key[key]
-        assert _present_in_artifact(cell) == n_expected, key
         assert cell.fields_expected == n_expected, key
+        assert _fields_in_truth(cell) >= n_expected, key
+    assert any(_fields_in_truth(cell) > cell.fields_expected for cell in cells)
 
 
 # score_recon: injections and detections, worked by hand.
