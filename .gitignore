@@ -1,5 +1,6 @@
 .env
 .claude/
+augraphy_cache/
 .venv/
 __pycache__/
 *.pyc

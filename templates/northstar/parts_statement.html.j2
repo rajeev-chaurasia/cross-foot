@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_title }} {{ statement_number }}</title>
+<style>
+  @page { size: Letter; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; }
+  body { font-family: "Courier New", Courier, monospace; font-size: 9.5pt; color: #000000; }
+  .shout { text-transform: uppercase; }
+  .head-box { border: 3px double #000000; padding: 10px 12px; text-align: center; }
+  .logo-badge {
+    display: inline-block; border: 2px solid #000000; padding: 1px 8px;
+    font-weight: 700; letter-spacing: 0.3em; margin-bottom: 4px;
+  }
+  .head-name { font-size: 13pt; font-weight: 700; letter-spacing: 0.22em; }
+  .head-addr { font-size: 8.5pt; }
+  .head-tag { font-size: 8.5pt; letter-spacing: 0.12em; }
+  .head-title { font-size: 11pt; font-weight: 700; letter-spacing: 0.18em; margin-top: 6px; }
+  table.meta { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 9pt; }
+  table.meta td { border: 1px solid #000000; padding: 3px 6px; }
+  table.meta td.label { font-weight: 700; width: 18%; }
+  table.lines { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  table.lines th {
+    border: 1px solid #000000; padding: 4px 5px; font-size: 8.5pt;
+    letter-spacing: 0.08em; text-align: left;
+  }
+  table.lines td { border: 1px solid #000000; padding: 3px 5px; vertical-align: top; }
+  th.num, td.num { text-align: right; }
+  td.ln { text-align: right; width: 4%; }
+  .totals-box {
+    margin-top: 12px; width: 52%; margin-left: auto; border: 2px solid #000000;
+    page-break-inside: avoid;
+  }
+  .totals-box table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  .totals-box td { padding: 3px 8px; }
+  .totals-box td.amt { text-align: right; }
+  .totals-box tr.grand td { border-top: 2px solid #000000; font-weight: 700; font-size: 10.5pt; }
+  .eos { text-align: center; margin-top: 20px; font-size: 9pt; letter-spacing: 0.2em; }
+</style>
+</head>
+<body>
+  <div class="head-box">
+    <div class="logo-badge">NS</div>
+    <div class="head-name shout">{{ marque_name }}</div>
+    <div class="head-addr">{{ marque_address }}</div>
+    <div class="head-tag shout">{{ marque_tagline }}</div>
+    <div class="head-title shout">** {{ doc_title }} **</div>
+  </div>
+  <table class="meta">
+    <tr>
+      <td class="label">STMT NO</td>
+      <td>{{ statement_number }}</td>
+      <td class="label">STMT DATE</td>
+      <td>{{ statement_date }}</td>
+    </tr>
+    <tr>
+      <td class="label">PERIOD</td>
+      <td>{{ period_start }} THRU {{ period_end }}</td>
+      <td class="label">DEALER</td>
+      <td>{{ dealer_code }}</td>
+    </tr>
+    <tr>
+      <td class="label">SOLD TO</td>
+      <td colspan="3">{{ dealer_name }}, {{ dealer_address }}</td>
+    </tr>
+  </table>
+  <table class="lines">
+    <thead>
+      <tr>
+        <th class="ln">LN</th>
+        <th>INVOICE</th>
+        <th>DATE</th>
+        <th>DESCRIPTION</th>
+        <th class="num">AMOUNT</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+      <tr>
+        <td class="ln">{{ line.line_no }}</td>
+        <td>{{ line.invoice_number }}</td>
+        <td>{{ line.line_date }}</td>
+        <td>{{ line.description }}</td>
+        <td class="num">{{ line.amount }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="totals-box">
+    <table>
+      {% if previous_balance %}
+      <tr><td>PREVIOUS BALANCE</td><td class="amt">{{ previous_balance }}</td></tr>
+      {% endif %}
+      <tr><td>SUBTOTAL</td><td class="amt">{{ subtotal }}</td></tr>
+      {% if adjustments %}
+      <tr><td>ADJUSTMENTS</td><td class="amt">{{ adjustments }}</td></tr>
+      {% endif %}
+      <tr class="grand"><td>TOTAL DUE</td><td class="amt">{{ total }}</td></tr>
+    </table>
+  </div>
+  <div class="eos">*** END OF STATEMENT ***</div>
+</body>
+</html>
