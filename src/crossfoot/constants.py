@@ -252,6 +252,24 @@ REF_GRAMMARS: dict[Oem, dict[FieldName, str]] = {
 }
 
 # ---------------------------------------------------------------------------
+# CSV header vocabulary
+# ---------------------------------------------------------------------------
+
+# Shared knowledge between the tabular renderer (which rotates through these)
+# and the extractor (which matches them case-insensitively). Lives here, not in
+# generator, so the extraction import boundary stays clean.
+CSV_HEADER_SYNONYMS: dict[FieldName, tuple[str, ...]] = {
+    FieldName.CLAIM_NUMBER: ("Claim Number", "CLAIM_NO", "ClaimNbr", "Claim #"),
+    FieldName.RO_NUMBER: ("RO Number", "RepairOrder", "RO #", "RO_NO"),
+    FieldName.VIN: ("VIN", "Vin #", "Vehicle ID"),
+    FieldName.INVOICE_NUMBER: ("Invoice Number", "Invoice #", "INV_NO", "InvoiceNbr"),
+    FieldName.PROGRAM_CODE: ("Program Code", "Program", "PGM_CD"),
+    FieldName.LINE_DATE: ("Date", "Post Dt", "Post Date", "Trans Date"),
+    FieldName.DESCRIPTION: ("Description", "Desc", "Detail"),
+    FieldName.LINE_AMOUNT: ("Amount", "Amt", "Net Amount", "AMOUNT_USD"),
+}
+
+# ---------------------------------------------------------------------------
 # VIN check digit (ISO 3779)
 # ---------------------------------------------------------------------------
 

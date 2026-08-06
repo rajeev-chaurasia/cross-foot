@@ -26,6 +26,7 @@ dependencies = [
     "augraphy>=8.2",
     "charset-normalizer>=3.3",
     "playwright>=1.45",
+    "pypdf>=6.15.0",
 ]
 
 [dependency-groups]
