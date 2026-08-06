@@ -30,12 +30,15 @@ PROVIDER_BASE_URLS: dict[Provider, str] = {
     Provider.CEREBRAS: "https://api.cerebras.ai/v1",
 }
 
+# Availability verified against each provider's model list on 2026-08-06.
+# The openrouter default is vision-capable so the vision spillover chain
+# stays usable when Gemini's daily cap is exhausted.
 PROVIDER_DEFAULT_MODELS: dict[Provider, str] = {
-    Provider.GEMINI: "gemini-2.5-flash",
+    Provider.GEMINI: "gemini-3.5-flash",
     Provider.GROQ: "llama-3.3-70b-versatile",
-    Provider.OPENROUTER: "meta-llama/llama-3.3-70b-instruct:free",
+    Provider.OPENROUTER: "nvidia/nemotron-nano-12b-v2-vl:free",
     Provider.MISTRAL: "mistral-small-latest",
-    Provider.CEREBRAS: "llama-3.3-70b",
+    Provider.CEREBRAS: "gpt-oss-120b",
 }
 
 # Call priority: vision extraction and spillover walk this order. Gemini leads

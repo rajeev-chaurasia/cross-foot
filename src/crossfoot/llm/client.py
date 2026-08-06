@@ -66,9 +66,13 @@ class LlmClient:
         if response.status_code != httpx.codes.OK:
             raise LlmError(f"{response.status_code} from {url}: {response.text[:300]}")
         body = response.json()
+        choices = body.get("choices")
+        if not choices:
+            # Some providers report errors inside an HTTP 200 body.
+            raise LlmError(f"no choices from {url}: {str(body)[:300]}")
         usage = body.get("usage") or {}
         return ChatResult(
-            content=body["choices"][0]["message"]["content"] or "",
+            content=choices[0]["message"]["content"] or "",
             model=body.get("model", self._profile.model),
             usage=ChatUsage(
                 prompt_tokens=int(usage.get("prompt_tokens", 0)),
