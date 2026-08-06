@@ -39,7 +39,7 @@ the seeded RNG; corrupted files get split=None.
 ## Generator API (`crossfoot.generator`)
 
 - `ledger_gen.generate_ledger(master_seed: int) -> LedgerBook`
-  3 dealers on different OEMs, 4 months of entries per schedule, valid ISO 3779 VINs,
+  One dealer per marque (4 total), 4 months of entries per schedule, valid ISO 3779 VINs,
   reference numbers matching `REF_GRAMMARS`.
 - `compose.compose_statements(book: LedgerBook, master_seed: int) -> tuple[StatementDoc, ...]`
   Every line carries `source_entry_id`. Composer invariants: `subtotal_cents` equals the
