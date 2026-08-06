@@ -1,6 +1,7 @@
 """Crossfoot command line interface."""
 
 import asyncio
+from pathlib import Path
 from typing import Annotated
 
 import httpx
@@ -14,6 +15,8 @@ from crossfoot.llm.client import LlmClient, LlmError
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 PROBE_PROMPT = "Reply with the single word: ok"
+
+_DEFAULT_DATASET_DIR = Path("data/dataset")
 
 
 @app.command()
@@ -61,6 +64,28 @@ async def _probe_all(profiles: list[ProviderProfile], timeout_seconds: float) ->
         for name, value in sorted(result.rate_limit_headers.items()):
             typer.echo(f"  {name}: {value}")
     return ok_count
+
+
+@app.command()
+def gen(
+    seed: Annotated[
+        int, typer.Option(help="Master seed; the same seed reproduces the same bytes.")
+    ] = 42,
+    out: Annotated[
+        Path, typer.Option(help="Output directory for the dataset.")
+    ] = _DEFAULT_DATASET_DIR,
+    profile: Annotated[str, typer.Option(help="Dataset profile: full or small.")] = "full",
+) -> None:
+    """Generate the synthetic dealer statement dataset."""
+    from crossfoot.generator.dataset import DatasetProfile, generate_dataset
+
+    try:
+        chosen = DatasetProfile(profile)
+    except ValueError as error:
+        allowed = ", ".join(DatasetProfile)
+        raise typer.BadParameter(f"profile must be one of: {allowed}") from error
+    manifest = generate_dataset(master_seed=seed, out_dir=out, profile=chosen)
+    typer.echo(f"Wrote {len(manifest.records)} records to {out}")
 
 
 def main() -> None:
