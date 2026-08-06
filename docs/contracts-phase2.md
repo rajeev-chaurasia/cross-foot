@@ -193,6 +193,55 @@ extraction rather than to matching. This is a reporting requirement, not optiona
 `crossfoot eval` gains the extraction, confidence, reconciliation, and cost sections of
 the scorecard.
 
+## Clarifications (binding, added 2026-08-06 after test-writer review)
+
+Module paths and symbols:
+
+- `crossfoot.llm.client`: `LlmClient`, `ChatResult`, `ChatUsage`, `LlmError`, and
+  `PageImage(page_index: int, png_bytes: bytes)`.
+- `crossfoot.llm.cassettes`: `CassetteMissError`.
+- `crossfoot.llm.spillover`: `SpilloverClient`, `AllProvidersFailedError`.
+- `crossfoot.llm.ratelimit`: `RateLimiter`, `RetryPolicy`, `Clock`.
+- `crossfoot.llm.runstate`: SQLite table `run_state`, mirroring `llm_calls`.
+- Every StrEnum keeps the repo convention of lowercase string values, so
+  `CallPurpose.EXTRACT == "extract"` and `RunStatus.IN_PROGRESS == "in_progress"`.
+
+`LlmClient` signature: `(profile, *, timeout_seconds, mode, cassette_dir, ledger,
+transport=None)`. The keyword-only `transport` accepts an `httpx.BaseTransport` so
+tests drive the client with `httpx.MockTransport` and never touch the network. It is a
+test seam only and defaults to None in production paths.
+
+Cassette replay and scrubbing: scrubbing wins over round-trip fidelity. A replayed
+`ChatResult` carries `rate_limit_headers == {}` because those headers are never
+persisted. Replay equality is therefore asserted on content, model, and usage, not on
+throttling metadata.
+
+`llm_calls` has 16 columns: the 14 already listed plus `actual_cost_microusd` and
+`list_price_microusd`, matching the existing `CostCell.list_price_microusd` unit.
+
+Rate limiting and retries:
+
+- `Clock` protocol: `now() -> float` and `async sleep(seconds: float) -> None`.
+- `RateLimiter(requests_per_minute, tokens_per_minute, clock).acquire(tokens=...)`,
+  a continuous-refill bucket whose capacity equals the per-minute rate.
+- `RetryPolicy(max_attempts, base_delay_seconds, max_delay_seconds, jitter_fraction)`
+  with `delay_for(attempt, retry_after_seconds)`. Nominal delay is
+  `min(base * 2 ** (attempt - 1), max)`, raised to `Retry-After` when the provider
+  sends one, and the returned value lies in `[nominal, nominal * (1 + jitter_fraction)]`.
+- Observed free-tier limits from the phase 0 probe on 2026-08-06, to be used as
+  defaults and re-verified before any full run: Groq 1000 requests and 12000 tokens per
+  window with a roughly 3 minute reset; Mistral 50 requests and 50000 tokens per
+  minute; Gemini and OpenRouter returned no rate limit headers, so their defaults are
+  conservative and set by config, not inferred.
+
+Spillover: `attempt` restarts at 1 for each profile, so a 429 exhausting three attempts
+on the primary and succeeding on the fallback records attempts [1, 2, 3, 1]. Cooldown
+length is a `cooldown_seconds` constructor parameter, not a constant.
+
+`llm/cache.py` has no direct contract test yet; its behavior is currently observed
+through the ledger (a cache hit records zero marginal tokens and `cached = True`).
+Direct tests land with the implementation.
+
 ## Boundaries and determinism
 
 - The phase 1 import boundary still holds: `extraction`, `confidence`, and `reconcile`
