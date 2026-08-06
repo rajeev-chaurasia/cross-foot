@@ -118,6 +118,23 @@ printed string into `rendered_values`.
   confidence 1.0 with status AUTO_ACCEPTED when validators pass; anything unparsed
   gets confidence 0.0 and NEEDS_REVIEW.
 
+## Clarifications (binding, added 2026-08-06 after test-writer review)
+
+- SMALL profile is 12 files: the 9 enumerated (doc_type, tier) combos hold 1 document
+  each except parts/clean_digital which holds 2, plus the 2 corrupted files.
+- Primary reference per doc type (used by matching pass 1 and the duplicate injector):
+  warranty_credit_memo claim_number, parts_statement invoice_number,
+  floorplan_statement vin, incentive_statement program_code plus vin.
+- DUPLICATE injection copies a line exactly: all reference fields and amount_cents
+  identical, distinct line_no.
+- extract_csv line_no is the 1-based ordinal of data rows in source order; render_csv
+  writes lines in truth line_no order, so ordinals align with truth line_no.
+- score_fields returns cells only for combos with fields_expected > 0, sorted by
+  (field_family, quality_tier) enum definition order.
+- ReconCell.caught_dollar_cents sums the absolute injected dollar_impact_cents of the
+  injections that were caught (injected-side accounting, not detection-side).
+- Unrecognizable input files map to IngestErrorKind.UNRECOGNIZED.
+
 ## Boundaries
 
 - `crossfoot.extraction`, `crossfoot.confidence`, `crossfoot.reconcile` must not import
