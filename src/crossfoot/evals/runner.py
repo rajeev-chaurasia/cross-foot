@@ -52,12 +52,40 @@ ROUTE_EXTRACTORS: dict[ExtractionRoute, Extractor] = {
 
 
 @dataclass(frozen=True, slots=True)
+class VisionDegradations:
+    """Quality the vision path lost, counted so a run publishes it.
+
+    Zero for the deterministic routes this offline runner serves; `crossfoot
+    extract` fills these in from the vision extractor's counters.
+    """
+
+    structured_output_failures: int = 0
+    consistency_degradations: int = 0
+    provider_failures: int = 0
+
+    def notes(self) -> str:
+        """A sentence naming every nonzero counter, empty when nothing degraded."""
+        parts: list[str] = []
+        if self.structured_output_failures:
+            parts.append(f"{self.structured_output_failures} failed structured output twice")
+        if self.consistency_degradations:
+            parts.append(
+                f"{self.consistency_degradations} lost the consistency sample"
+                " and carry no self_consistency signal"
+            )
+        if self.provider_failures:
+            parts.append(f"{self.provider_failures} failed on every provider")
+        return f" Vision degradations: {'; '.join(parts)}." if parts else ""
+
+
+@dataclass(frozen=True, slots=True)
 class ExtractionRun:
     """Everything one pass over a split produced, including what it could not."""
 
     documents: tuple[ExtractedDocument, ...]
     unprocessable: tuple[ExtractedDocument, ...]
     unserved: Counter[ExtractionRoute]
+    degradations: VisionDegradations = VisionDegradations()
 
     def total(self) -> int:
         return len(self.documents) + len(self.unprocessable) + sum(self.unserved.values())
@@ -140,7 +168,7 @@ def run_notes(run: ExtractionRun) -> str:
             f"{route.value} ({count})" for route, count in sorted(run.unserved.items())
         )
         notes += f" Routed but left unextracted by this offline run: {skipped}."
-    return notes
+    return notes + run.degradations.notes()
 
 
 def statement_from_extraction(

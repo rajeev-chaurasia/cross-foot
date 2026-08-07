@@ -1,6 +1,7 @@
 """Crossfoot command line interface."""
 
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -21,6 +22,7 @@ from crossfoot.constants import (
 from crossfoot.llm.client import LlmClient, LlmError
 
 if TYPE_CHECKING:  # imported for signatures only; the commands load them lazily
+    from crossfoot.evals.runner import VisionDegradations
     from crossfoot.models.extraction import ExtractedDocument, FieldSignals
     from crossfoot.models.scorecard import Scorecard
 
@@ -35,6 +37,16 @@ CASSETTE_DIR = Path("tests/fixtures/cassettes")
 COST_DB = DEFAULT_DATA_DIR / "costs.db"
 RUN_STATE_DB = DEFAULT_DATA_DIR / "runstate.db"
 RESPONSE_CACHE_DB = DEFAULT_DATA_DIR / "llm_cache.db"
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractCounts:
+    """What one extract command produced, degraded paths included."""
+
+    extracted: int
+    unprocessable: int
+    skipped: int
+    degradations: "VisionDegradations"
 
 
 @app.command()
@@ -149,8 +161,10 @@ def extract(
         # Only the scanned tier needs a key, so this fires when one is reached.
         typer.echo(f"{error} The deterministic tiers still run without one.")
         raise typer.Exit(code=2) from error
-    extracted, unprocessable, skipped = counts
-    typer.echo(f"{extracted} extracted, {unprocessable} unprocessable, {skipped} already done")
+    typer.echo(
+        f"{counts.extracted} extracted, {counts.unprocessable} unprocessable,"
+        f" {counts.skipped} already done{counts.degradations.notes()}"
+    )
 
 
 @app.command()
@@ -269,15 +283,21 @@ def calibrate(
 
 async def _extract_split(
     dataset: Path, split: SplitName, mode: LlmMode, resume: bool
-) -> tuple[int, int, int]:
-    """Route and extract every document in the split; returns the three counts."""
+) -> ExtractCounts:
+    """Route and extract every document in the split; no document ends the run."""
     from crossfoot.costs import CostLedger
     from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
-    from crossfoot.evals.runner import ROUTE_EXTRACTORS, load_manifest, split_records
+    from crossfoot.evals.runner import (
+        ROUTE_EXTRACTORS,
+        VisionDegradations,
+        load_manifest,
+        split_records,
+    )
     from crossfoot.extraction.llm_vision import VisionExtractor, rasterize_pdf
     from crossfoot.extraction.router import route_file
     from crossfoot.llm.cache import ResponseCache
     from crossfoot.llm.runstate import DocStatus, RunState
+    from crossfoot.llm.spillover import SpilloverClient
     from crossfoot.models.extraction import ExtractedDocument
 
     manifest = load_manifest(dataset)
@@ -291,12 +311,14 @@ async def _extract_split(
 
     def vision_extractor() -> VisionExtractor:
         """Built on first use, so a split with no scans needs no provider key."""
-        client = LlmClient(
-            settings.primary_profile(),
-            settings.llm_timeout_seconds,
+        # Every configured profile, not just the primary: a 220 document run is
+        # long enough that one transient 503 is a certainty, not a risk.
+        client = SpilloverClient(
+            profiles=settings.profile_pool(),
+            ledger=ledger,
+            timeout_seconds=settings.llm_timeout_seconds,
             mode=mode,
             cassette_dir=CASSETTE_DIR,
-            ledger=ledger,
             cache=cache,
         )
         return VisionExtractor(client, run_id=run_id)
@@ -346,7 +368,18 @@ async def _extract_split(
         ledger.close()
         cache.close()
     _write_extractions(run_id, extracted)
-    return len(extracted), unprocessable, skipped
+    return ExtractCounts(
+        extracted=len(extracted),
+        unprocessable=unprocessable,
+        skipped=skipped,
+        degradations=VisionDegradations()
+        if vision is None
+        else VisionDegradations(
+            structured_output_failures=vision.structured_output_failures,
+            consistency_degradations=vision.consistency_degradations,
+            provider_failures=vision.provider_failures,
+        ),
+    )
 
 
 def _labelled_fields(

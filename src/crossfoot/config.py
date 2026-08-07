@@ -17,6 +17,8 @@ from crossfoot.constants import (
     Provider,
 )
 
+NO_PROVIDER_MESSAGE = "No provider key found. Copy .env.example to .env and add at least one key."
+
 
 class NoProviderConfiguredError(RuntimeError):
     """Raised when no provider key and no custom gateway is configured."""
@@ -81,10 +83,12 @@ class Settings(BaseSettings):
         )
         return profiles
 
-    def primary_profile(self) -> ProviderProfile:
+    def profile_pool(self) -> list[ProviderProfile]:
+        """Every configured profile, priority ordered, for the spillover pool."""
         profiles = self.configured_profiles()
         if not profiles:
-            raise NoProviderConfiguredError(
-                "No provider key found. Copy .env.example to .env and add at least one key."
-            )
-        return profiles[0]
+            raise NoProviderConfiguredError(NO_PROVIDER_MESSAGE)
+        return profiles
+
+    def primary_profile(self) -> ProviderProfile:
+        return self.profile_pool()[0]

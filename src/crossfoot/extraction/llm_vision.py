@@ -40,7 +40,7 @@ from crossfoot.extraction.normalize import (
     parse_date,
     strip_control_chars,
 )
-from crossfoot.llm.results import ChatResult
+from crossfoot.llm.results import ChatResult, LlmError
 from crossfoot.llm.results import PageImage as ClientPageImage
 from crossfoot.models.extraction import (
     BBox,
@@ -72,6 +72,9 @@ AUTHORITATIVE_TEMPERATURE = 0.0
 CONSISTENCY_TEMPERATURE = 0.4
 # One repair retry carries the validation error; a second failure voids the doc.
 MAX_REPAIR_ATTEMPTS = 1
+
+SCHEMA_FAILURE_DETAIL = "structured output failed validation twice"
+PROVIDER_FAILURE_DETAIL = "every provider failed the extraction call"
 
 AGREES = 1.0
 DISAGREES = 0.0
@@ -252,6 +255,10 @@ class VisionExtractor:
         self._client = client
         self._run_id = run_id
         self.structured_output_failures = 0
+        # Documents that kept their values but lost the k=2 agreement signal.
+        self.consistency_degradations = 0
+        # Documents no provider would extract at all, after every retry.
+        self.provider_failures = 0
 
     async def extract_document(
         self,
@@ -266,20 +273,27 @@ class VisionExtractor:
         model = response_model_for(doc_type)
         wire_images = tuple(image.to_client_image() for image in images)
         names = line_field_names(doc_type)
-        authoritative = await self._sample(
-            doc_id, doc_type, model, wire_images, names, AUTHORITATIVE_TEMPERATURE, Purpose.EXTRACT
-        )
+        try:
+            authoritative = await self._sample(
+                doc_id,
+                doc_type,
+                model,
+                wire_images,
+                names,
+                AUTHORITATIVE_TEMPERATURE,
+                Purpose.EXTRACT,
+            )
+        except LlmError as error:
+            # Retries and every provider are already spent by the time this
+            # arrives, so this document is lost and the batch is not.
+            _LOGGER.warning("%s lost its authoritative sample: %s", doc_id, error)
+            self.provider_failures += 1
+            return _unprocessable(
+                doc_id, file_path, doc_type, f"{PROVIDER_FAILURE_DETAIL}: {error}"
+            )
         if authoritative is None:
-            return _unprocessable(doc_id, file_path, doc_type)
-        consistency = await self._sample(
-            doc_id,
-            doc_type,
-            model,
-            wire_images,
-            _shuffled(names, doc_id),
-            CONSISTENCY_TEMPERATURE,
-            Purpose.CONSISTENCY,
-        )
+            return _unprocessable(doc_id, file_path, doc_type, SCHEMA_FAILURE_DETAIL)
+        consistency = await self._consistency_sample(doc_id, doc_type, model, wire_images, names)
         return _to_document(
             doc_id=doc_id,
             file_path=file_path,
@@ -289,6 +303,34 @@ class VisionExtractor:
             authoritative=authoritative,
             agreement=_agreement(authoritative, consistency),
         )
+
+    async def _consistency_sample(
+        self,
+        doc_id: str,
+        doc_type: DocType,
+        model: type[VisionDocument],
+        images: Sequence[ClientPageImage],
+        names: Sequence[FieldName],
+    ) -> VisionDocument | None:
+        """The warm k=2 sample, or None when no provider served it.
+
+        Losing it costs the self_consistency signal, which the confidence model
+        already encodes as absent. Losing it must never cost the document.
+        """
+        try:
+            return await self._sample(
+                doc_id,
+                doc_type,
+                model,
+                images,
+                _shuffled(names, doc_id),
+                CONSISTENCY_TEMPERATURE,
+                Purpose.CONSISTENCY,
+            )
+        except LlmError as error:
+            _LOGGER.warning("%s degraded: no consistency sample (%s)", doc_id, error)
+            self.consistency_degradations += 1
+            return None
 
     async def _sample(
         self,
@@ -416,17 +458,16 @@ def _to_document(
     return doc.model_copy(update={"crossfoot_delta_cents": crossfoot_delta_cents(doc)})
 
 
-def _unprocessable(doc_id: str, file_path: str, doc_type: DocType) -> ExtractedDocument:
-    """A document whose repair also failed yields no fields at all."""
+def _unprocessable(
+    doc_id: str, file_path: str, doc_type: DocType, detail: str
+) -> ExtractedDocument:
+    """A document the extractor gave up on yields no fields, only a typed error."""
     return ExtractedDocument(
         doc_id=doc_id,
         file_path=file_path,
         route=ExtractionRoute.UNPROCESSABLE,
         doc_type=doc_type,
-        error=IngestError(
-            kind=IngestErrorKind.UNRECOGNIZED,
-            detail="structured output failed validation twice",
-        ),
+        error=IngestError(kind=IngestErrorKind.UNRECOGNIZED, detail=detail),
     )
 
 
