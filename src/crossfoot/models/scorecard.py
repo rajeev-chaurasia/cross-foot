@@ -19,8 +19,13 @@ class FieldAccuracyCell(BaseModel):
 
     field_family: FieldFamily
     quality_tier: QualityTier
+    # Both denominators publish side by side so the phase 2 amendment is visible
+    # rather than asserted: every populated truth field, and only those the
+    # artifact actually printed.
+    fields_in_truth: int = 0
     fields_expected: int
-    fields_extracted: int
+    fields_extracted: int  # extracted fields resolving to any truth field
+    fields_spurious: int = 0  # extracted fields resolving to none: the hallucination count
     correct_canonical: int  # canonical-value match (cents, ISO date, normalized ref)
     correct_raw: int  # verbatim string match, reported for transparency
 

@@ -65,6 +65,13 @@ def parse_amount_to_cents(text: str) -> int | None:
     return -magnitude if negative else magnitude
 
 
+def format_cents(cents: int) -> str:
+    """Canonical decimal string for integer cents: -12345 -> '-123.45'."""
+    sign = "-" if cents < 0 else ""
+    dollars, remainder = divmod(abs(cents), CENTS_PER_DOLLAR)
+    return f"{sign}{dollars}.{remainder:02d}"
+
+
 def parse_date(text: str) -> date | None:
     """Parse MM/DD/YYYY, YYYY-MM-DD, or DD-MMM-YYYY (15-JUL-2026); None otherwise."""
     cleaned = text.strip()

@@ -38,6 +38,16 @@ def _truth(doc_id: str) -> StatementDoc:
     )
 
 
+# The amended scoring rule expects only what the artifact printed, so a record
+# with no rendered values would score no cells at all.
+RENDERED = {
+    "1:claim_number": "NS12345678",
+    "1:line_date": "07/15/2026",
+    "1:description": "Alpha brake kit",
+    "1:line_amount": "123.45",
+}
+
+
 def _record(doc_id: str, file_path: str) -> ManifestRecord:
     return ManifestRecord(
         doc_id=doc_id,
@@ -46,6 +56,7 @@ def _record(doc_id: str, file_path: str) -> ManifestRecord:
         template_id="northstar-warranty_credit_memo-csv-v1",
         render_seed=1,
         truth=_truth(doc_id),
+        rendered_values=RENDERED,
         split=SplitName.TRAIN,
     )
 

@@ -78,24 +78,34 @@ def raw_is_correct(field: ExtractedField, rendered: str | None) -> bool | None:
 def score_fields(
     docs: Sequence[ExtractedDocument], manifest: DatasetManifest, split: SplitName
 ) -> tuple[FieldAccuracyCell, ...]:
-    """Per (family, tier) accuracy over the split; unextracted docs still count."""
+    """Per (family, tier) accuracy over the split; unextracted docs still count.
+
+    A truth field is expected only when the artifact printed it, which the
+    manifest records as a rendered_values key. The phase 1 denominator survives
+    beside it as fields_in_truth so a reader can judge the amendment.
+    """
     docs_by_id = {doc.doc_id: doc for doc in docs}
     counts: defaultdict[tuple[FieldFamily, QualityTier], _FieldCounts] = defaultdict(_FieldCounts)
     for record in manifest.records:
         if record.split is not split or record.truth is None:
             continue
         truth = record.truth
-        for name, value in _truth_fields(truth):
-            if value is not None:
-                counts[FIELD_FAMILIES[name], record.quality_tier].expected += 1
+        for key, name, value in _truth_fields(truth):
+            if value is None:
+                continue
+            cell = counts[FIELD_FAMILIES[name], record.quality_tier]
+            cell.in_truth += 1
+            if key in record.rendered_values:
+                cell.expected += 1
         doc = docs_by_id.get(record.doc_id)
         if doc is None:
             continue
         for field in (*doc.header_fields, *doc.line_fields):
+            cell = counts[FIELD_FAMILIES[field.name], record.quality_tier]
             correct = field_is_correct(field, truth)
             if correct is None:
-                continue  # extracted, but resolves to no truth field
-            cell = counts[FIELD_FAMILIES[field.name], record.quality_tier]
+                cell.spurious += 1  # extracted, but resolves to no truth field
+                continue
             cell.extracted += 1
             if correct:
                 cell.canonical += 1
@@ -109,8 +119,10 @@ def score_fields(
         FieldAccuracyCell(
             field_family=family,
             quality_tier=tier,
+            fields_in_truth=counts[family, tier].in_truth,
             fields_expected=counts[family, tier].expected,
             fields_extracted=counts[family, tier].extracted,
+            fields_spurious=counts[family, tier].spurious,
             correct_canonical=counts[family, tier].canonical,
             correct_raw=counts[family, tier].raw,
         )
@@ -164,8 +176,10 @@ def score_recon(
 
 @dataclass
 class _FieldCounts:
+    in_truth: int = 0
     expected: int = 0
     extracted: int = 0
+    spurious: int = 0
     canonical: int = 0
     raw: int = 0
 
@@ -242,18 +256,27 @@ def _line_value(name: FieldName, line: StatementLine) -> TruthValue:
     return None
 
 
-def _truth_fields(truth: StatementDoc) -> Iterator[tuple[FieldName, TruthValue]]:
+def _truth_fields(truth: StatementDoc) -> Iterator[tuple[str, FieldName, TruthValue]]:
+    """Every truth slot as (rendered_values key, field name, value)."""
     for name in _HEADER_FIELD_NAMES:
-        yield name, _header_value(name, truth)
+        yield _header_key(name), name, _header_value(name, truth)
     for line in truth.lines:
         for name in _LINE_FIELD_NAMES:
-            yield name, _line_value(name, line)
+            yield _line_key(line.line_no, name), name, _line_value(name, line)
+
+
+def _header_key(name: FieldName) -> str:
+    return f"header:{name}"
+
+
+def _line_key(line_no: int, name: FieldName) -> str:
+    return f"{line_no}:{name}"
 
 
 def _rendered_key(field: ExtractedField) -> str:
     if field.line_no is None:
-        return f"header:{field.name}"
-    return f"{field.line_no}:{field.name}"
+        return _header_key(field.name)
+    return _line_key(field.line_no, field.name)
 
 
 def _canonical_reference(text: str) -> str:

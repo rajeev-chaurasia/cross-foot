@@ -106,6 +106,16 @@
             "title": "Fields Extracted",
             "type": "integer"
           },
+          "fields_in_truth": {
+            "default": 0,
+            "title": "Fields In Truth",
+            "type": "integer"
+          },
+          "fields_spurious": {
+            "default": 0,
+            "title": "Fields Spurious",
+            "type": "integer"
+          },
           "quality_tier": {
             "$ref": "#/$defs/QualityTier"
           }
