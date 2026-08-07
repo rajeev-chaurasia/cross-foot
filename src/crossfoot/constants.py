@@ -275,6 +275,9 @@ class IngestErrorKind(StrEnum):
     EMPTY = "empty"
     UNRECOGNIZED = "unrecognized"
     TOO_LARGE = "too_large"  # over the extractor's file size or row ceiling
+    # The only kind the document itself had no part in: every provider refused,
+    # a quota is spent, a socket died. crossfoot.extraction.failures reads it.
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
 
 
 class ExceptionType(StrEnum):

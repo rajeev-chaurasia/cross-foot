@@ -16,6 +16,7 @@ from crossfoot.constants import (
     VISION_CAPABILITIES,
     ExtractionRoute,
     FieldFamily,
+    IngestErrorKind,
     LlmMode,
     Provider,
     ReconMode,
@@ -26,6 +27,7 @@ from crossfoot.llm.client import LlmClient, LlmError
 
 if TYPE_CHECKING:  # imported for signatures only; the commands load them lazily
     from crossfoot.evals.runner import VisionDegradations
+    from crossfoot.extraction.batch import DocumentOutcome
     from crossfoot.llm.runstate import RunState
     from crossfoot.models.extraction import ExtractedDocument, FieldSignals
     from crossfoot.models.scorecard import Scorecard
@@ -42,13 +44,21 @@ COST_DB = DEFAULT_DATA_DIR / "costs.db"
 RUN_STATE_DB = DEFAULT_DATA_DIR / "runstate.db"
 RESPONSE_CACHE_DB = DEFAULT_DATA_DIR / "llm_cache.db"
 
+# Details for the documents this command finishes without extracting. Both are
+# properties of the document, so both are final and both reach the output file.
+NO_EXTRACTOR_DETAIL = "no extractor for {route}"
+NO_DOC_TYPE_DETAIL = "the dataset supplies no doc type for this scan"
+
 
 @dataclass(frozen=True, slots=True)
 class ExtractCounts:
     """What one extract command produced, degraded paths included."""
 
     extracted: int
+    # Finished either way: unprocessable will not change on a rerun, while
+    # pending_retry is work this run still owes and a resume will take.
     unprocessable: int
+    pending_retry: int
     skipped: int
     degradations: "VisionDegradations"
 
@@ -185,6 +195,7 @@ def extract(
         raise typer.Exit(code=2) from error
     typer.echo(
         f"{counts.extracted} extracted, {counts.unprocessable} unprocessable,"
+        f" {counts.pending_retry} pending retry,"
         f" {counts.skipped} already done{counts.degradations.notes()}"
     )
 
@@ -315,7 +326,12 @@ async def _extract_split(
         load_manifest,
         split_records,
     )
-    from crossfoot.extraction.batch import BatchExtractor, DocumentOutcome
+    from crossfoot.extraction.batch import (
+        BatchExtractor,
+        DocumentOutcome,
+        report_to_stderr,
+        reset_provider_failures,
+    )
     from crossfoot.extraction.llm_vision import VisionExtractor, rasterize_pdf
     from crossfoot.extraction.router import route_file
     from crossfoot.llm.cache import ResponseCache
@@ -330,6 +346,13 @@ async def _extract_split(
     cache = ResponseCache(RESPONSE_CACHE_DB)
     run_id = f"extract-{split}-{manifest.config_hash[:8]}"
     state.start_run(run_id, list(records))
+    if resume:
+        # One time recovery. Rows checkpointed DONE before a provider failure
+        # could be told from a document failure are unfinished work, and this is
+        # what lets them be retried without discarding the run's successes.
+        reopened = reset_provider_failures(state, run_id, list(records))
+        if reopened:
+            report_to_stderr(f"{reopened} provider failures reset to pending")
 
     vision: VisionExtractor | None = None
     vision_pool: SpilloverClient | None = None
@@ -362,17 +385,33 @@ async def _extract_split(
             return vision
 
     async def extract_one(doc_id: str) -> DocumentOutcome:
+        """Every failure below is the document's own, so each is a finished result."""
         record = records[doc_id]
         try:
             path = resolve_dataset_path(dataset, record.file_path)
         except UnsafeDatasetPathError as error:
-            return DocumentOutcome(error=str(error))
+            return _unprocessable_outcome(
+                doc_id, record.file_path, IngestErrorKind.UNRECOGNIZED, str(error)
+            )
         routing = route_file(path)
         offline = ROUTE_EXTRACTORS.get(routing.route)
         if offline is not None:
             return DocumentOutcome(document=offline(path, doc_id))
-        if routing.route is not ExtractionRoute.SCANNED_PDF or record.truth is None:
-            return DocumentOutcome(error=f"no extractor for {routing.route}")
+        if routing.error is not None:
+            return _unprocessable_outcome(
+                doc_id, path.as_posix(), routing.error.kind, routing.error.detail
+            )
+        if routing.route is not ExtractionRoute.SCANNED_PDF:
+            return _unprocessable_outcome(
+                doc_id,
+                path.as_posix(),
+                IngestErrorKind.UNRECOGNIZED,
+                NO_EXTRACTOR_DETAIL.format(route=routing.route.value),
+            )
+        if record.truth is None:
+            return _unprocessable_outcome(
+                doc_id, path.as_posix(), IngestErrorKind.UNRECOGNIZED, NO_DOC_TYPE_DETAIL
+            )
         extractor = await vision_extractor()
         return DocumentOutcome(
             document=await extractor.extract_document(
@@ -422,9 +461,13 @@ async def _extract_split(
         ledger.close()
         cache.close()
     _write_extractions(run_id, finished)
+    # Counted off the whole run, so a resume keeps reporting the permanent
+    # failures earlier passes recorded; only the retry queue is this pass's.
+    extracted = [doc for doc in finished if doc.route is not ExtractionRoute.UNPROCESSABLE]
     return ExtractCounts(
-        extracted=len(finished),
-        unprocessable=result.unprocessable,
+        extracted=len(extracted),
+        unprocessable=len(finished) - len(extracted),
+        pending_retry=result.pending_retry,
         skipped=result.skipped,
         degradations=degradations(),
     )
@@ -454,20 +497,45 @@ def _labelled_fields(
     return rows
 
 
+def _unprocessable_outcome(
+    doc_id: str, file_path: str, kind: IngestErrorKind, detail: str
+) -> "DocumentOutcome":
+    """A finished result for a document no extractor here can serve.
+
+    A typed error rather than a bare message, so the checkpoint can see that the
+    document itself is the reason and a rerun would only reach the same answer.
+    """
+    from crossfoot.extraction.batch import DocumentOutcome
+    from crossfoot.models.extraction import ExtractedDocument, IngestError
+
+    return DocumentOutcome(
+        document=ExtractedDocument(
+            doc_id=doc_id,
+            file_path=file_path,
+            route=ExtractionRoute.UNPROCESSABLE,
+            error=IngestError(kind=kind, detail=detail),
+        )
+    )
+
+
 def _finished_documents(
     state: "RunState", run_id: str, doc_ids: Iterable[str]
 ) -> list["ExtractedDocument"]:
     """Every document this run has completed, across all passes, sorted by doc_id.
 
     RunState is the record of what finished, so a resumed run reports the whole
-    set rather than only the documents its final pass happened to touch.
+    set rather than only the documents its final pass happened to touch. A
+    permanent failure is finished too and belongs here: it is a real result the
+    scorecard counts. A document still owed a retry is not DONE and stays out.
     """
+    from crossfoot.llm.runstate import DocStatus
     from crossfoot.models.extraction import ExtractedDocument
 
     documents = [
         ExtractedDocument.model_validate_json(stored)
         for doc_id in doc_ids
-        if (stored := state.result(run_id, doc_id)) is not None
+        if state.status(run_id, doc_id) is DocStatus.DONE
+        and (stored := state.result(run_id, doc_id)) is not None
     ]
     return sorted(documents, key=lambda doc: doc.doc_id)
 

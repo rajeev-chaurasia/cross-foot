@@ -34,6 +34,7 @@ from crossfoot.constants import (
     QualityTier,
 )
 from crossfoot.costs import CallContext, Purpose
+from crossfoot.extraction.failures import PROVIDER_FAILURE_DETAIL
 from crossfoot.extraction.normalize import (
     format_cents,
     parse_amount_to_cents,
@@ -73,8 +74,10 @@ CONSISTENCY_TEMPERATURE = 0.4
 # One repair retry carries the validation error; a second failure voids the doc.
 MAX_REPAIR_ATTEMPTS = 1
 
+# The document's own fault: two answers, neither matching the schema. Rerunning
+# it reaches the same answer, so it is final. PROVIDER_FAILURE_DETAIL, which is
+# the run's fault instead, lives beside its classification in failures.py.
 SCHEMA_FAILURE_DETAIL = "structured output failed validation twice"
-PROVIDER_FAILURE_DETAIL = "every provider failed the extraction call"
 
 AGREES = 1.0
 DISAGREES = 0.0
@@ -285,14 +288,22 @@ class VisionExtractor:
             )
         except LlmError as error:
             # Retries and every provider are already spent by the time this
-            # arrives, so this document is lost and the batch is not.
+            # arrives, so this document is lost and the batch is not. The kind
+            # says the run failed rather than the document, which is what keeps
+            # the checkpoint from calling it finished.
             _LOGGER.warning("%s lost its authoritative sample: %s", doc_id, error)
             self.provider_failures += 1
             return _unprocessable(
-                doc_id, file_path, doc_type, f"{PROVIDER_FAILURE_DETAIL}: {error}"
+                doc_id,
+                file_path,
+                doc_type,
+                IngestErrorKind.PROVIDER_UNAVAILABLE,
+                f"{PROVIDER_FAILURE_DETAIL}: {error}",
             )
         if authoritative is None:
-            return _unprocessable(doc_id, file_path, doc_type, SCHEMA_FAILURE_DETAIL)
+            return _unprocessable(
+                doc_id, file_path, doc_type, IngestErrorKind.UNRECOGNIZED, SCHEMA_FAILURE_DETAIL
+            )
         consistency = await self._consistency_sample(doc_id, doc_type, model, wire_images, names)
         return _to_document(
             doc_id=doc_id,
@@ -459,7 +470,7 @@ def _to_document(
 
 
 def _unprocessable(
-    doc_id: str, file_path: str, doc_type: DocType, detail: str
+    doc_id: str, file_path: str, doc_type: DocType, kind: IngestErrorKind, detail: str
 ) -> ExtractedDocument:
     """A document the extractor gave up on yields no fields, only a typed error."""
     return ExtractedDocument(
@@ -467,7 +478,7 @@ def _unprocessable(
         file_path=file_path,
         route=ExtractionRoute.UNPROCESSABLE,
         doc_type=doc_type,
-        error=IngestError(kind=IngestErrorKind.UNRECOGNIZED, detail=detail),
+        error=IngestError(kind=kind, detail=detail),
     )
 
 

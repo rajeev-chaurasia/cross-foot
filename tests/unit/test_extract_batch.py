@@ -256,7 +256,10 @@ async def test_a_failed_document_is_checkpointed_and_the_batch_carries_on(
     result = await clock.run(_batch(state, extract, clock).run(ids))
 
     assert len(result.documents) == DOCUMENT_COUNT - 1
-    assert result.unprocessable == 1
+    # A raised exception carries no verdict on the document, so it counts as
+    # work still owed rather than as a result: FAILED, and pending on a resume.
+    assert result.pending_retry == 1
+    assert result.unprocessable == 0
     assert state.status(RUN_ID, KILLED_DOC_ID) is DocStatus.FAILED
     assert all(
         state.status(RUN_ID, doc_id) is DocStatus.DONE for doc_id in ids if doc_id != KILLED_DOC_ID

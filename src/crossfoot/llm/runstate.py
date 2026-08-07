@@ -4,6 +4,10 @@ One row per (run_id, doc_id). Only DONE is skipped on resume: a run killed
 mid-document leaves an IN_PROGRESS row whose work never finished, and a FAILED
 document is worth another pass. The provider was already paid for the attempt
 that died, so the ledger keeps that charge and the resumed attempt adds its own.
+
+DONE therefore means finished for good, whether the document extracted or failed
+on its own bytes. A failure the run caused rather than the document stays FAILED,
+so the next pass owes it; crossfoot.extraction.failures decides which is which.
 """
 
 from __future__ import annotations
@@ -108,6 +112,14 @@ class RunState:
 
     def mark_failed(self, run_id: str, doc_id: str, error: str) -> None:
         self._set(run_id, doc_id, DocStatus.FAILED, result_json=None, error=error)
+
+    def reset_to_pending(self, run_id: str, doc_id: str) -> None:
+        """Put a document back in the queue, dropping the result it carried.
+
+        The result goes because a row that is not DONE has nothing to report:
+        keeping it would put a superseded answer in the extractions file.
+        """
+        self._set(run_id, doc_id, DocStatus.PENDING, result_json=None, error=None)
 
     def close(self) -> None:
         self._connection.close()

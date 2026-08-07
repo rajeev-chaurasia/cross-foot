@@ -281,7 +281,8 @@ async def test_one_lost_document_does_not_stop_the_batch(tmp_path: Path) -> None
 
     assert lost.route is ExtractionRoute.UNPROCESSABLE
     assert lost.error is not None
-    assert lost.error.kind is IngestErrorKind.UNRECOGNIZED
+    # The kind says the run failed, not the document, so a resume owes it again.
+    assert lost.error.kind is IngestErrorKind.PROVIDER_UNAVAILABLE
     assert extractor.provider_failures == 1
 
     assert served.route is ExtractionRoute.SCANNED_PDF
