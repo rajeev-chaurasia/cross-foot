@@ -1,7 +1,7 @@
 """Crossfoot command line interface."""
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +25,7 @@ from crossfoot.llm.client import LlmClient, LlmError
 
 if TYPE_CHECKING:  # imported for signatures only; the commands load them lazily
     from crossfoot.evals.runner import VisionDegradations
+    from crossfoot.llm.runstate import RunState
     from crossfoot.models.extraction import ExtractedDocument, FieldSignals
     from crossfoot.models.scorecard import Scorecard
 
@@ -398,13 +399,17 @@ async def _extract_split(
             degradations=degradation_count,
             fatal=(NoProviderConfiguredError,),
         ).run(list(records), resume=resume)
+        # Write every document the run has ever finished, not just this pass.
+        # A resumed run only re-extracts what was pending, so writing its
+        # results alone would drop everything an earlier pass completed.
+        finished = _finished_documents(state, run_id, records)
     finally:
         state.close()
         ledger.close()
         cache.close()
-    _write_extractions(run_id, result.documents)
+    _write_extractions(run_id, finished)
     return ExtractCounts(
-        extracted=len(result.documents),
+        extracted=len(finished),
         unprocessable=result.unprocessable,
         skipped=result.skipped,
         degradations=degradations(),
@@ -433,6 +438,24 @@ def _labelled_fields(
             if correct is not None:
                 rows.append((field.family, field.signals, correct))
     return rows
+
+
+def _finished_documents(
+    state: "RunState", run_id: str, doc_ids: Iterable[str]
+) -> list["ExtractedDocument"]:
+    """Every document this run has completed, across all passes, sorted by doc_id.
+
+    RunState is the record of what finished, so a resumed run reports the whole
+    set rather than only the documents its final pass happened to touch.
+    """
+    from crossfoot.models.extraction import ExtractedDocument
+
+    documents = [
+        ExtractedDocument.model_validate_json(stored)
+        for doc_id in doc_ids
+        if (stored := state.result(run_id, doc_id)) is not None
+    ]
+    return sorted(documents, key=lambda doc: doc.doc_id)
 
 
 def _write_extractions(run_id: str, documents: Sequence["ExtractedDocument"]) -> Path:
