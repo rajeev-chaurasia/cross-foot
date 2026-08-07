@@ -11,6 +11,10 @@ primary followed by a fallback that answers records attempts [1, 2, 3, 1].
 Text and vision share one attempt loop. A live run proved why: the vision call
 bypassed this module entirely, so a single transient 503 on the second k=2
 sample ended a whole extraction run.
+
+When every profile is cooling down at once, a long batch job waits the earliest
+cooldown out rather than losing the document to an outage that lasts minutes.
+Interactive callers keep the immediate failure.
 """
 
 from __future__ import annotations
@@ -39,6 +43,10 @@ from crossfoot.llm.ratelimit import (
 from crossfoot.llm.results import ChatResult, LlmError, PageImage
 
 DEFAULT_COOLDOWN_SECONDS = 300.0
+# Ceiling on how long one call may sit waiting for cooldowns to expire. Three
+# default cooldowns outlast a transient outage; a provider set that is dead for
+# longer ends the call instead of hanging the run forever.
+MAX_COOLDOWN_WAIT_SECONDS = 900.0
 DEFAULT_RETRY_POLICY = RetryPolicy(
     max_attempts=3,
     base_delay_seconds=1.0,
@@ -126,11 +134,18 @@ class SpilloverClient:
         cassette_dir: Path | None = None,
         cache: ResponseCache | None = None,
         rate_limiters: Mapping[Provider, RateLimiter] | None = None,
+        wait_for_cooldown: bool = False,
+        max_cooldown_wait_seconds: float = MAX_COOLDOWN_WAIT_SECONDS,
     ) -> None:
         self._profiles = tuple(profiles)
         self._clock = MonotonicClock() if clock is None else clock
         self._retry_policy = retry_policy
         self._cooldown_seconds = cooldown_seconds
+        # Off for interactive callers, who want the failure now. A long batch
+        # job turns it on: skipping work during an outage silently destroys a
+        # slice of the run and the scorecard blames extraction quality for it.
+        self._wait_for_cooldown = wait_for_cooldown
+        self._max_cooldown_wait_seconds = max_cooldown_wait_seconds
         self._clients = {
             profile.name: LlmClient(
                 profile,
@@ -197,19 +212,33 @@ class SpilloverClient:
         )
 
     async def _serve(self, call: _Call) -> ChatResult:
-        """Walk the profiles until one answers; the shared path for both methods."""
-        failures: list[str] = []
-        for profile in self._profiles:
-            if self._cooling_down(profile.name):
-                continue
-            outcome = await self._try_profile(profile, call)
-            if isinstance(outcome, ChatResult):
-                return outcome
-            self._cooldown_until[profile.name] = self._clock.now() + self._cooldown_seconds
-            failures.append(f"{profile.name}: {outcome}")
-        raise AllProvidersFailedError(
-            "; ".join(failures) if failures else "every profile is cooling down"
-        )
+        """Walk the profiles until one answers; the shared path for both methods.
+
+        A pool where everything is cooling down either fails now or waits the
+        earliest cooldown out and walks again, bounded so a dead pool ends.
+        """
+        waited = 0.0
+        while True:
+            failures: list[str] = []
+            for profile in self._profiles:
+                if self._cooling_down(profile.name):
+                    continue
+                outcome = await self._try_profile(profile, call)
+                if isinstance(outcome, ChatResult):
+                    return outcome
+                self._cooldown_until[profile.name] = self._clock.now() + self._cooldown_seconds
+                failures.append(f"{profile.name}: {outcome}")
+            wait = self._seconds_until_earliest_cooldown()
+            if (
+                not self._wait_for_cooldown
+                or wait is None
+                or waited + wait > self._max_cooldown_wait_seconds
+            ):
+                raise AllProvidersFailedError(
+                    "; ".join(failures) if failures else "every profile is cooling down"
+                )
+            await self._clock.sleep(wait)
+            waited += wait
 
     async def _try_profile(self, profile: ProviderProfile, call: _Call) -> ChatResult | LlmError:
         """One profile until it answers or gives up; the error explains giving up."""
@@ -239,6 +268,12 @@ class SpilloverClient:
     def _cooling_down(self, provider: Provider) -> bool:
         until = self._cooldown_until.get(provider)
         return until is not None and self._clock.now() < until
+
+    def _seconds_until_earliest_cooldown(self) -> float | None:
+        """Wait that would free the first profile, or None when none is cooling."""
+        now = self._clock.now()
+        pending = [until - now for until in self._cooldown_until.values() if until > now]
+        return min(pending) if pending else None
 
 
 async def _dispatch(client: LlmClient, call: _Call, attempt: int) -> ChatResult:

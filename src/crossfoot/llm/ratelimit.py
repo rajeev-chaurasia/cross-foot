@@ -89,24 +89,33 @@ class _Bucket:
 
 
 class RateLimiter:
-    """Requests per minute and tokens per minute, enforced as two buckets."""
+    """Requests per minute and tokens per minute, enforced as two buckets.
+
+    One limiter is shared by every concurrent worker, so it is the single place
+    that decides when a request may go out.
+    """
 
     def __init__(self, *, requests_per_minute: int, tokens_per_minute: int, clock: Clock) -> None:
         self._requests = _Bucket(requests_per_minute, clock)
         self._tokens = _Bucket(tokens_per_minute, clock)
         self._clock = clock
+        # Checking a bucket and taking from it straddles a sleep, so concurrent
+        # callers must not interleave: without this every waiter wakes together
+        # and they all spend the one token that refilled.
+        self._gate = asyncio.Lock()
 
     async def acquire(self, *, tokens: int = 1) -> None:
         # A request bigger than a full bucket could never fit, so it waits for a
         # full bucket and leaves the real ceiling to the provider.
         cost = min(float(tokens), self._tokens.capacity)
-        while True:
-            wait = max(self._requests.wait_seconds(1.0), self._tokens.wait_seconds(cost))
-            if wait <= 0.0:
-                break
-            await self._clock.sleep(wait)
-        self._requests.take(1.0)
-        self._tokens.take(cost)
+        async with self._gate:
+            while True:
+                wait = max(self._requests.wait_seconds(1.0), self._tokens.wait_seconds(cost))
+                if wait <= 0.0:
+                    break
+                await self._clock.sleep(wait)
+            self._requests.take(1.0)
+            self._tokens.take(cost)
 
 
 @dataclass(frozen=True)

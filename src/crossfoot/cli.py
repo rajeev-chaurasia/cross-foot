@@ -1,6 +1,7 @@
 """Crossfoot command line interface."""
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ from crossfoot.constants import (
     ReconMode,
     SplitName,
 )
+from crossfoot.extraction.batch import DEFAULT_EXTRACT_CONCURRENCY
 from crossfoot.llm.client import LlmClient, LlmError
 
 if TYPE_CHECKING:  # imported for signatures only; the commands load them lazily
@@ -153,10 +155,18 @@ def extract(
     ] = "train",
     resume: Annotated[bool, typer.Option(help="Skip documents this run already finished.")] = False,
     mode: Annotated[str, typer.Option(help="LLM mode: live, record, or replay.")] = "replay",
+    concurrency: Annotated[
+        int,
+        typer.Option(help="Documents extracted at once; the rate limiter still paces requests."),
+    ] = DEFAULT_EXTRACT_CONCURRENCY,
 ) -> None:
     """Extract a split, sending scanned documents through the vision model."""
+    if concurrency < 1:
+        raise typer.BadParameter("concurrency must be at least 1")
     try:
-        counts = asyncio.run(_extract_split(dataset, _split_name(split), _llm_mode(mode), resume))
+        counts = asyncio.run(
+            _extract_split(dataset, _split_name(split), _llm_mode(mode), resume, concurrency)
+        )
     except NoProviderConfiguredError as error:
         # Only the scanned tier needs a key, so this fires when one is reached.
         typer.echo(f"{error} The deterministic tiers still run without one.")
@@ -282,9 +292,9 @@ def calibrate(
 
 
 async def _extract_split(
-    dataset: Path, split: SplitName, mode: LlmMode, resume: bool
+    dataset: Path, split: SplitName, mode: LlmMode, resume: bool, concurrency: int
 ) -> ExtractCounts:
-    """Route and extract every document in the split; no document ends the run."""
+    """Route and extract the split concurrently; no document ends the run."""
     from crossfoot.costs import CostLedger
     from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
     from crossfoot.evals.runner import (
@@ -293,92 +303,111 @@ async def _extract_split(
         load_manifest,
         split_records,
     )
+    from crossfoot.extraction.batch import BatchExtractor, DocumentOutcome
     from crossfoot.extraction.llm_vision import VisionExtractor, rasterize_pdf
     from crossfoot.extraction.router import route_file
     from crossfoot.llm.cache import ResponseCache
-    from crossfoot.llm.runstate import DocStatus, RunState
+    from crossfoot.llm.runstate import RunState
     from crossfoot.llm.spillover import SpilloverClient
-    from crossfoot.models.extraction import ExtractedDocument
 
     manifest = load_manifest(dataset)
-    records = split_records(manifest, split)
+    records = {record.doc_id: record for record in split_records(manifest, split)}
     settings = Settings()
     ledger = CostLedger(COST_DB)
     state = RunState(RUN_STATE_DB)
     cache = ResponseCache(RESPONSE_CACHE_DB)
     run_id = f"extract-{split}-{manifest.config_hash[:8]}"
-    state.start_run(run_id, [record.doc_id for record in records])
-
-    def vision_extractor() -> VisionExtractor:
-        """Built on first use, so a split with no scans needs no provider key."""
-        # Every configured profile, not just the primary: a 220 document run is
-        # long enough that one transient 503 is a certainty, not a risk.
-        client = SpilloverClient(
-            profiles=settings.profile_pool(),
-            ledger=ledger,
-            timeout_seconds=settings.llm_timeout_seconds,
-            mode=mode,
-            cassette_dir=CASSETTE_DIR,
-            cache=cache,
-        )
-        return VisionExtractor(client, run_id=run_id)
+    state.start_run(run_id, list(records))
 
     vision: VisionExtractor | None = None
-    extracted: list[ExtractedDocument] = []
-    unprocessable = 0
-    skipped = 0
-    try:
-        for record in records:
-            if resume and state.status(run_id, record.doc_id) is DocStatus.DONE:
-                skipped += 1
-                continue
-            state.mark_in_progress(run_id, record.doc_id)
-            try:
-                path = resolve_dataset_path(dataset, record.file_path)
-            except UnsafeDatasetPathError as error:
-                state.mark_failed(run_id, record.doc_id, str(error))
-                unprocessable += 1
-                continue
-            routing = route_file(path)
-            offline = ROUTE_EXTRACTORS.get(routing.route)
-            if offline is not None:
-                doc = offline(path, record.doc_id)
-            elif routing.route is ExtractionRoute.SCANNED_PDF and record.truth is not None:
-                vision = vision or vision_extractor()
-                doc = await vision.extract_document(
-                    doc_id=record.doc_id,
-                    file_path=path.as_posix(),
-                    # The harness supplies the doc type; classification is its own
-                    # purpose in the ledger and is not wired yet.
-                    doc_type=record.truth.doc_type,
-                    quality_tier=record.quality_tier,
-                    images=rasterize_pdf(path),
+    # Workers share one extractor, so its counters and its provider pool stay
+    # single; the lock is what keeps first use from building two of them.
+    vision_lock = asyncio.Lock()
+
+    async def vision_extractor() -> VisionExtractor:
+        """Built once on first use, so a split with no scans needs no provider key."""
+        nonlocal vision
+        async with vision_lock:
+            if vision is None:
+                # Every configured profile, not just the primary: a 220 document
+                # run is long enough that one transient 503 is a certainty, not a
+                # risk. It waits cooldowns out too, because skipping the rest of a
+                # batch during an outage reads as an extraction quality problem.
+                vision = VisionExtractor(
+                    SpilloverClient(
+                        profiles=settings.profile_pool(),
+                        ledger=ledger,
+                        timeout_seconds=settings.llm_timeout_seconds,
+                        mode=mode,
+                        cassette_dir=CASSETTE_DIR,
+                        cache=cache,
+                        wait_for_cooldown=True,
+                    ),
+                    run_id=run_id,
                 )
-            else:
-                state.mark_failed(run_id, record.doc_id, f"no extractor for {routing.route}")
-                unprocessable += 1
-                continue
-            state.mark_done(run_id, record.doc_id, doc.model_dump_json())
-            if doc.route is ExtractionRoute.UNPROCESSABLE:
-                unprocessable += 1
-            else:
-                extracted.append(doc)
+            return vision
+
+    async def extract_one(doc_id: str) -> DocumentOutcome:
+        record = records[doc_id]
+        try:
+            path = resolve_dataset_path(dataset, record.file_path)
+        except UnsafeDatasetPathError as error:
+            return DocumentOutcome(error=str(error))
+        routing = route_file(path)
+        offline = ROUTE_EXTRACTORS.get(routing.route)
+        if offline is not None:
+            return DocumentOutcome(document=offline(path, doc_id))
+        if routing.route is not ExtractionRoute.SCANNED_PDF or record.truth is None:
+            return DocumentOutcome(error=f"no extractor for {routing.route}")
+        extractor = await vision_extractor()
+        return DocumentOutcome(
+            document=await extractor.extract_document(
+                doc_id=doc_id,
+                file_path=path.as_posix(),
+                # The harness supplies the doc type; classification is its own
+                # purpose in the ledger and is not wired yet.
+                doc_type=record.truth.doc_type,
+                quality_tier=record.quality_tier,
+                images=rasterize_pdf(path),
+            )
+        )
+
+    def degradations() -> VisionDegradations:
+        if vision is None:
+            return VisionDegradations()
+        return VisionDegradations(
+            structured_output_failures=vision.structured_output_failures,
+            consistency_degradations=vision.consistency_degradations,
+            provider_failures=vision.provider_failures,
+        )
+
+    def degradation_count() -> int:
+        counts = degradations()
+        return (
+            counts.structured_output_failures
+            + counts.consistency_degradations
+            + counts.provider_failures
+        )
+
+    try:
+        result = await BatchExtractor(
+            state=state,
+            run_id=run_id,
+            extract=extract_one,
+            concurrency=concurrency,
+            degradations=degradation_count,
+            fatal=(NoProviderConfiguredError,),
+        ).run(list(records), resume=resume)
     finally:
         state.close()
         ledger.close()
         cache.close()
-    _write_extractions(run_id, extracted)
+    _write_extractions(run_id, result.documents)
     return ExtractCounts(
-        extracted=len(extracted),
-        unprocessable=unprocessable,
-        skipped=skipped,
-        degradations=VisionDegradations()
-        if vision is None
-        else VisionDegradations(
-            structured_output_failures=vision.structured_output_failures,
-            consistency_degradations=vision.consistency_degradations,
-            provider_failures=vision.provider_failures,
-        ),
+        extracted=len(result.documents),
+        unprocessable=result.unprocessable,
+        skipped=result.skipped,
+        degradations=degradations(),
     )
 
 
@@ -406,7 +435,7 @@ def _labelled_fields(
     return rows
 
 
-def _write_extractions(run_id: str, documents: list["ExtractedDocument"]) -> Path:
+def _write_extractions(run_id: str, documents: Sequence["ExtractedDocument"]) -> Path:
     out_path = EXTRACTIONS_DIR / f"{run_id}.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = "[\n" + ",\n".join(doc.model_dump_json(indent=2) for doc in documents) + "\n]\n"
