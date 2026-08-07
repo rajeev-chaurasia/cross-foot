@@ -255,6 +255,53 @@ length is a `cooldown_seconds` constructor parameter, not a constant.
 through the ledger (a cache hit records zero marginal tokens and `cached = True`).
 Direct tests land with the implementation.
 
+### Provider capabilities and per provider limits
+
+Empirical capability matrix, verified 2026-08-06 by one direct call per provider
+carrying a tiny PNG and a `json_schema` response format, against the default model in
+`PROVIDER_DEFAULT_MODELS`:
+
+| Provider | Model | Vision | json_schema |
+| --- | --- | --- | --- |
+| gemini | gemini-3.5-flash | yes | yes |
+| groq | llama-3.3-70b-versatile | no | no |
+| openrouter | nvidia/nemotron-nano-12b-v2-vl:free | yes | yes |
+| mistral | mistral-small-latest | yes | yes |
+
+Groq answered `messages[0].content must be a string` and `This model does not support
+response format json_schema`, so it is text only. Gemini's probe itself hit a spent
+daily quota, but 15 vision calls in the same run had already been served, so it is
+recorded as capable. `Provider.CUSTOM` is a user supplied gateway and is trusted with
+every capability, because the user chose the model behind it.
+
+**Binding rule: the vision pool is capability filtered.** `Settings.profile_pool()`
+still means every configured profile, and `profile_pool(requires=...)` returns only the
+profiles whose provider satisfies the named `Capability` values, in priority order,
+raising `NoProviderConfiguredError` naming the missing capability when nothing is left.
+`crossfoot extract` builds its vision `SpilloverClient` from
+`profile_pool(requires=VISION_CAPABILITIES)`, which is vision plus `json_schema`. A
+capability blind chain is what lost 36 of 105 documents on 2026-08-06: Groq sat second
+in the vision chain and answered 400, which is correctly classified as RAISE, so those
+documents neither retried nor spilled over. Groq stays configured for text only work.
+
+Per provider rate limit defaults live in `constants.PROVIDER_RATE_LIMITS`, applied per
+profile by `SpilloverClient` rather than as one shared limiter, since a global limiter
+set to the slowest member would throttle the fast ones for nothing:
+
+| Provider | Requests per minute | Tokens per minute | Source |
+| --- | --- | --- | --- |
+| gemini | 10 | 250000 | published free tier for flash class models |
+| groq | 300 | 4000 | phase 0 probe, 1000 and 12000 per 3 minute window |
+| openrouter | 10 | 100000 | no headers sent, conservative guess |
+| mistral | 50 | 50000 | phase 0 probe, reported per minute |
+| custom | 60 | 100000 | gateway paces itself, this only stops a runaway loop |
+
+Gemini's 10 rpm is the figure the 2026-08-06 run exceeded with 4 concurrent workers: 16
+of roughly 31 calls came back 429 and the daily cap went with them. A 429 whose body
+matches `QUOTA_EXHAUSTED_MARKERS` means the allowance is spent rather than rationed, so
+that provider stops retrying, takes `QUOTA_COOLDOWN_SECONDS` instead of the ordinary
+cooldown, and is named in the run summary. Any other 429 body keeps the ordinary path.
+
 ### Scoring, second pass
 
 - `fields_present_in_artifact` is dropped. Under the amended rule it would always equal

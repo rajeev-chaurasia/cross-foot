@@ -15,6 +15,10 @@ sample ended a whole extraction run.
 When every profile is cooling down at once, a long batch job waits the earliest
 cooldown out rather than losing the document to an outage that lasts minutes.
 Interactive callers keep the immediate failure.
+
+A 429 whose body says the allowance is spent, not merely rationed, earns a much
+longer cooldown and is reported by name: a daily cap does not refill between two
+documents, so retrying it on each one only buys dead requests.
 """
 
 from __future__ import annotations
@@ -43,6 +47,11 @@ from crossfoot.llm.ratelimit import (
 from crossfoot.llm.results import ChatResult, LlmError, PageImage
 
 DEFAULT_COOLDOWN_SECONDS = 300.0
+# A spent daily quota does not refill in five minutes, so the ordinary cooldown
+# would put the provider back in the chain for every remaining document and burn
+# one dead request each time. Deliberately longer than any batch is likely to
+# run, and deliberately not permanent.
+QUOTA_COOLDOWN_SECONDS = 21_600.0
 # Ceiling on how long one call may sit waiting for cooldowns to expire. Three
 # default cooldowns outlast a transient outage; a provider set that is dead for
 # longer ends the call instead of hanging the run forever.
@@ -72,6 +81,20 @@ RETRYABLE_STATUSES: frozenset[int] = frozenset(
 # A spent free allowance does not refill on a retry: Cerebras answers 402 the
 # moment it is gone, so the next profile is the only useful move.
 IMMEDIATE_SPILLOVER_STATUSES: frozenset[int] = frozenset({PAYMENT_REQUIRED})
+
+# A 429 means either "too fast" or "your allowance is gone", and only the body
+# says which. Substring matching on purpose: parsing four providers' error JSON
+# would couple this module to shapes that change without notice, and anything
+# that does not match falls through to ordinary 429 handling.
+QUOTA_EXHAUSTED_MARKERS: tuple[str, ...] = ("exceeded your current quota", "quota exceeded")
+
+
+def quota_exhausted(error: LlmError) -> bool:
+    """True when a 429 body says the allowance is spent, not merely rationed."""
+    if error.status_code != TOO_MANY_REQUESTS:
+        return False
+    message = str(error).lower()
+    return any(marker in message for marker in QUOTA_EXHAUSTED_MARKERS)
 
 
 class FailureAction(StrEnum):
@@ -128,6 +151,7 @@ class SpilloverClient:
         clock: Clock | None = None,
         retry_policy: RetryPolicy = DEFAULT_RETRY_POLICY,
         cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS,
+        quota_cooldown_seconds: float = QUOTA_COOLDOWN_SECONDS,
         transport: httpx.AsyncBaseTransport | None = None,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         mode: LlmMode = LlmMode.LIVE,
@@ -141,6 +165,7 @@ class SpilloverClient:
         self._clock = MonotonicClock() if clock is None else clock
         self._retry_policy = retry_policy
         self._cooldown_seconds = cooldown_seconds
+        self._quota_cooldown_seconds = quota_cooldown_seconds
         # Off for interactive callers, who want the failure now. A long batch
         # job turns it on: skipping work during an outage silently destroys a
         # slice of the run and the scorecard blames extraction quality for it.
@@ -164,6 +189,16 @@ class SpilloverClient:
             else dict(rate_limiters)
         )
         self._cooldown_until: dict[Provider, float] = {}
+        # Providers whose allowance is gone rather than merely rationed. Never
+        # cleared: it is the run's record of a degraded path, which the summary
+        # names instead of reporting a mystery, and a spent daily cap outlives
+        # any batch anyway.
+        self._exhausted: set[Provider] = set()
+
+    @property
+    def exhausted_providers(self) -> tuple[Provider, ...]:
+        """Providers that reported a spent quota during this run, in pool order."""
+        return tuple(profile.name for profile in self._profiles if profile.name in self._exhausted)
 
     async def chat(
         self,
@@ -226,7 +261,9 @@ class SpilloverClient:
                 outcome = await self._try_profile(profile, call)
                 if isinstance(outcome, ChatResult):
                     return outcome
-                self._cooldown_until[profile.name] = self._clock.now() + self._cooldown_seconds
+                self._cooldown_until[profile.name] = self._clock.now() + self._cooldown_for(
+                    profile.name
+                )
                 failures.append(f"{profile.name}: {outcome}")
             wait = self._seconds_until_earliest_cooldown()
             if (
@@ -255,6 +292,11 @@ class SpilloverClient:
                 if action is FailureAction.RAISE:
                     raise
                 last_error = error
+                if quota_exhausted(error):
+                    # Waiting a per minute window out cannot bring a spent
+                    # allowance back, so stop paying for attempts here.
+                    self._exhausted.add(profile.name)
+                    break
                 if action is FailureAction.SPILL:
                     break
                 if attempt < self._retry_policy.max_attempts:
@@ -264,6 +306,12 @@ class SpilloverClient:
                         )
                     )
         return last_error
+
+    def _cooldown_for(self, provider: Provider) -> float:
+        """The long cooldown for a spent quota, the ordinary one for everything else."""
+        if provider in self._exhausted:
+            return self._quota_cooldown_seconds
+        return self._cooldown_seconds
 
     def _cooling_down(self, provider: Provider) -> bool:
         until = self._cooldown_until.get(provider)

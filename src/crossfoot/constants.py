@@ -1,5 +1,6 @@
 """Shared enums and named constants: LLM providers, domain vocabulary, grammars."""
 
+from dataclasses import dataclass
 from enum import StrEnum
 
 # ---------------------------------------------------------------------------
@@ -46,6 +47,77 @@ PROVIDER_PRIORITY: tuple[Provider, ...] = (
     Provider.OPENROUTER,
     Provider.MISTRAL,
 )
+
+
+class Capability(StrEnum):
+    """One thing a provider's default model must be able to do to serve a call."""
+
+    VISION = "vision"
+    JSON_SCHEMA = "json_schema"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCapabilities:
+    """What one provider's default model can do, as probed rather than assumed."""
+
+    supports_vision: bool
+    supports_json_schema: bool
+
+    def supports(self, capability: Capability) -> bool:
+        return {
+            Capability.VISION: self.supports_vision,
+            Capability.JSON_SCHEMA: self.supports_json_schema,
+        }[capability]
+
+
+# Probed on 2026-08-06, one direct call per provider carrying a tiny PNG and a
+# json_schema response_format. Groq refused both ("messages[0].content must be a
+# string", "This model does not support response format json_schema"), which is
+# why it must never sit in a vision chain: 400 is a bad request, so it neither
+# retries nor spills over and the document dies on the spot.
+# Gemini's probe hit its spent daily quota, but 15 vision calls in the same run
+# had already been served, so it is recorded as capable.
+# Provider.CUSTOM is a user supplied gateway: the user chose the model behind
+# it deliberately, so it is trusted with everything rather than probed here.
+PROVIDER_CAPABILITIES: dict[Provider, ProviderCapabilities] = {
+    Provider.CUSTOM: ProviderCapabilities(supports_vision=True, supports_json_schema=True),
+    Provider.GEMINI: ProviderCapabilities(supports_vision=True, supports_json_schema=True),
+    Provider.GROQ: ProviderCapabilities(supports_vision=False, supports_json_schema=False),
+    Provider.OPENROUTER: ProviderCapabilities(supports_vision=True, supports_json_schema=True),
+    Provider.MISTRAL: ProviderCapabilities(supports_vision=True, supports_json_schema=True),
+}
+
+# The vision extractor sends page images and demands structured output, so its
+# pool needs both; a provider missing either cannot serve one document.
+VISION_CAPABILITIES: tuple[Capability, ...] = (Capability.VISION, Capability.JSON_SCHEMA)
+
+
+@dataclass(frozen=True, slots=True)
+class RateLimit:
+    """One provider's pacing allowance, both dimensions per minute."""
+
+    requests_per_minute: int
+    tokens_per_minute: int
+
+
+# Per provider because a shared limiter set to the slowest provider would
+# throttle the fast ones for no reason. Conservative where a provider publishes
+# nothing, since overshooting costs a whole daily quota.
+PROVIDER_RATE_LIMITS: dict[Provider, RateLimit] = {
+    # 10 rpm is Google's documented free tier figure for flash class models, and
+    # exceeding it is why the 2026-08-06 run took 16 429s and then spent its
+    # daily cap. Tokens are the published free tier per minute allowance.
+    Provider.GEMINI: RateLimit(requests_per_minute=10, tokens_per_minute=250_000),
+    # Phase 0 probe headers: 1000 requests and 12000 tokens over a roughly three
+    # minute window, taken to a per minute rate and rounded below its share.
+    Provider.GROQ: RateLimit(requests_per_minute=300, tokens_per_minute=4_000),
+    # OpenRouter sent no rate limit headers, so this is a guess, not a figure.
+    Provider.OPENROUTER: RateLimit(requests_per_minute=10, tokens_per_minute=100_000),
+    # Phase 0 probe headers, reported per minute directly.
+    Provider.MISTRAL: RateLimit(requests_per_minute=50, tokens_per_minute=50_000),
+    # A user supplied gateway paces itself; this only stops a runaway loop.
+    Provider.CUSTOM: RateLimit(requests_per_minute=60, tokens_per_minute=100_000),
+}
 
 CHAT_COMPLETIONS_PATH = "/chat/completions"
 

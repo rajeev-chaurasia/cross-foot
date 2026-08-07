@@ -13,6 +13,7 @@ import typer
 from crossfoot import __version__
 from crossfoot.config import NoProviderConfiguredError, ProviderProfile, Settings
 from crossfoot.constants import (
+    VISION_CAPABILITIES,
     ExtractionRoute,
     FieldFamily,
     LlmMode,
@@ -50,6 +51,16 @@ class ExtractCounts:
     unprocessable: int
     skipped: int
     degradations: "VisionDegradations"
+
+
+def vision_profiles(settings: Settings) -> list[ProviderProfile]:
+    """The provider chain `extract` gives its vision pool.
+
+    Filtered, not merely ordered: a provider that cannot read images answers
+    400, which neither retries nor spills over, so leaving it in the chain kills
+    every document that reaches it.
+    """
+    return settings.profile_pool(requires=VISION_CAPABILITIES)
 
 
 @app.command()
@@ -321,31 +332,33 @@ async def _extract_split(
     state.start_run(run_id, list(records))
 
     vision: VisionExtractor | None = None
+    vision_pool: SpilloverClient | None = None
     # Workers share one extractor, so its counters and its provider pool stay
     # single; the lock is what keeps first use from building two of them.
     vision_lock = asyncio.Lock()
 
     async def vision_extractor() -> VisionExtractor:
         """Built once on first use, so a split with no scans needs no provider key."""
-        nonlocal vision
+        nonlocal vision, vision_pool
         async with vision_lock:
             if vision is None:
-                # Every configured profile, not just the primary: a 220 document
-                # run is long enough that one transient 503 is a certainty, not a
-                # risk. It waits cooldowns out too, because skipping the rest of a
-                # batch during an outage reads as an extraction quality problem.
-                vision = VisionExtractor(
-                    SpilloverClient(
-                        profiles=settings.profile_pool(),
-                        ledger=ledger,
-                        timeout_seconds=settings.llm_timeout_seconds,
-                        mode=mode,
-                        cassette_dir=CASSETTE_DIR,
-                        cache=cache,
-                        wait_for_cooldown=True,
-                    ),
-                    run_id=run_id,
+                # Every configured profile that can actually serve the call, not
+                # just the primary: a 220 document run is long enough that one
+                # transient 503 is a certainty, not a risk. A text only provider
+                # is filtered out instead, because its 400 neither retries nor
+                # spills over and would kill the document outright. It waits
+                # cooldowns out too, because skipping the rest of a batch during
+                # an outage reads as an extraction quality problem.
+                vision_pool = SpilloverClient(
+                    profiles=vision_profiles(settings),
+                    ledger=ledger,
+                    timeout_seconds=settings.llm_timeout_seconds,
+                    mode=mode,
+                    cassette_dir=CASSETTE_DIR,
+                    cache=cache,
+                    wait_for_cooldown=True,
                 )
+                vision = VisionExtractor(vision_pool, run_id=run_id)
             return vision
 
     async def extract_one(doc_id: str) -> DocumentOutcome:
@@ -380,6 +393,7 @@ async def _extract_split(
             structured_output_failures=vision.structured_output_failures,
             consistency_degradations=vision.consistency_degradations,
             provider_failures=vision.provider_failures,
+            quota_exhausted=() if vision_pool is None else vision_pool.exhausted_providers,
         )
 
     def degradation_count() -> int:

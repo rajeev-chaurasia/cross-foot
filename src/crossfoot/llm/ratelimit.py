@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from typing import Protocol
 
-from crossfoot.constants import Provider
+from crossfoot.constants import PROVIDER_RATE_LIMITS, Provider, RateLimit
 
 SECONDS_PER_MINUTE = 60.0
 # Below this a wait is float noise from the previous refill, not a real wait.
@@ -23,20 +23,8 @@ CHARS_PER_TOKEN = 4
 # One rasterized statement page, bounded by the vision path's longest-edge cap.
 IMAGE_TOKEN_ESTIMATE = 1_500
 
-# Observed on 2026-08-06 by the phase 0 probe, as (requests, tokens) per minute.
-# Groq reported 1000 requests and 12000 tokens over a roughly 3 minute window
-# and Mistral reported per-minute figures directly. Gemini and OpenRouter sent
-# no rate limit headers, so their numbers are deliberately conservative guesses
-# rather than anything the providers told us.
-DEFAULT_RATE_LIMITS: dict[Provider, tuple[int, int]] = {
-    Provider.GEMINI: (10, 250_000),
-    Provider.GROQ: (300, 4_000),
-    Provider.OPENROUTER: (10, 100_000),
-    Provider.MISTRAL: (50, 50_000),
-    Provider.CUSTOM: (60, 100_000),
-}
-
-FALLBACK_RATE_LIMIT = (10, 100_000)
+# For a provider with no entry in the table, which today cannot happen.
+FALLBACK_RATE_LIMIT = RateLimit(requests_per_minute=10, tokens_per_minute=100_000)
 
 
 class Clock(Protocol):
@@ -138,10 +126,11 @@ class RetryPolicy:
 
 
 def limiter_for(provider: Provider, clock: Clock) -> RateLimiter:
-    requests_per_minute, tokens_per_minute = DEFAULT_RATE_LIMITS.get(provider, FALLBACK_RATE_LIMIT)
+    """One provider's own limiter, so a slow provider never paces a fast one."""
+    limit = PROVIDER_RATE_LIMITS.get(provider, FALLBACK_RATE_LIMIT)
     return RateLimiter(
-        requests_per_minute=requests_per_minute,
-        tokens_per_minute=tokens_per_minute,
+        requests_per_minute=limit.requests_per_minute,
+        tokens_per_minute=limit.tokens_per_minute,
         clock=clock,
     )
 

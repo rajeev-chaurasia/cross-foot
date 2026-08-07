@@ -5,6 +5,7 @@ and friends) so one .env serves this project and any gateway pointed at it.
 Crossfoot-specific settings carry the CROSSFOOT_ prefix.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -12,12 +13,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from crossfoot.constants import (
     PROVIDER_BASE_URLS,
+    PROVIDER_CAPABILITIES,
     PROVIDER_DEFAULT_MODELS,
     PROVIDER_PRIORITY,
+    Capability,
     Provider,
 )
 
 NO_PROVIDER_MESSAGE = "No provider key found. Copy .env.example to .env and add at least one key."
+NO_CAPABLE_PROVIDER_TEMPLATE = (
+    "No configured provider supports {capabilities}."
+    " Add a key for a provider that does; see PROVIDER_CAPABILITIES."
+)
 
 
 class NoProviderConfiguredError(RuntimeError):
@@ -83,12 +90,44 @@ class Settings(BaseSettings):
         )
         return profiles
 
-    def profile_pool(self) -> list[ProviderProfile]:
-        """Every configured profile, priority ordered, for the spillover pool."""
-        profiles = self.configured_profiles()
-        if not profiles:
-            raise NoProviderConfiguredError(NO_PROVIDER_MESSAGE)
-        return profiles
+    def profile_pool(self, *, requires: Sequence[Capability] = ()) -> list[ProviderProfile]:
+        """Configured profiles in priority order, for the spillover pool.
+
+        With `requires` the pool keeps only providers that can serve the call.
+        A capability blind pool is what killed 36 documents on 2026-08-06: Groq
+        cannot read images, and its 400 neither retries nor spills over.
+        """
+        configured = self.configured_profiles()
+        pool = [
+            profile
+            for profile in configured
+            if all(
+                PROVIDER_CAPABILITIES[profile.name].supports(capability) for capability in requires
+            )
+        ]
+        if not pool:
+            raise _no_pool_error(configured, requires)
+        return pool
 
     def primary_profile(self) -> ProviderProfile:
         return self.profile_pool()[0]
+
+
+def _no_pool_error(
+    configured: Sequence[ProviderProfile], requires: Sequence[Capability]
+) -> NoProviderConfiguredError:
+    """Say which capability emptied the pool, not just that it is empty."""
+    if not configured:
+        return NoProviderConfiguredError(NO_PROVIDER_MESSAGE)
+    # A capability no configured provider has at all names the real gap. When
+    # each one is covered separately but no single provider covers them
+    # together, the whole requirement is the gap.
+    missing = [
+        capability
+        for capability in requires
+        if not any(
+            PROVIDER_CAPABILITIES[profile.name].supports(capability) for profile in configured
+        )
+    ] or list(requires)
+    named = ", ".join(capability.value for capability in missing)
+    return NoProviderConfiguredError(NO_CAPABLE_PROVIDER_TEMPLATE.format(capabilities=named))

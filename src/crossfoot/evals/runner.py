@@ -20,6 +20,7 @@ from crossfoot.constants import (
     FieldName,
     IngestErrorKind,
     LineType,
+    Provider,
     SplitName,
 )
 from crossfoot.evals.metrics import score_fields
@@ -62,6 +63,9 @@ class VisionDegradations:
     structured_output_failures: int = 0
     consistency_degradations: int = 0
     provider_failures: int = 0
+    # Providers whose allowance ran out mid run. Named rather than counted: the
+    # fix is a key or a wait, and a reader cannot act on a number.
+    quota_exhausted: tuple[Provider, ...] = ()
 
     def notes(self) -> str:
         """A sentence naming every nonzero counter, empty when nothing degraded."""
@@ -75,6 +79,9 @@ class VisionDegradations:
             )
         if self.provider_failures:
             parts.append(f"{self.provider_failures} failed on every provider")
+        if self.quota_exhausted:
+            named = ", ".join(provider.value for provider in self.quota_exhausted)
+            parts.append(f"quota exhausted on {named}")
         return f" Vision degradations: {'; '.join(parts)}." if parts else ""
 
 
