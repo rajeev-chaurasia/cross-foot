@@ -40,6 +40,9 @@ _MONTH_ABBREVIATIONS = {
 _REFERENCE_SEPARATORS = re.compile(r"[\- ]")
 
 
+_WRAPPERS = (("{", "}"), ("[", "]"))
+
+
 def parse_amount_to_cents(text: str) -> int | None:
     """Parse a currency string into integer cents; None for blank or garbage input.
 
@@ -48,6 +51,12 @@ def parse_amount_to_cents(text: str) -> int | None:
     """
     cleaned = text.strip()
     negative = False
+    # Some models wrap a value they read correctly in braces or brackets. That is
+    # formatting noise around a good reading, not a different number.
+    for opener, closer in _WRAPPERS:
+        if cleaned.startswith(opener) and cleaned.endswith(closer):
+            cleaned = cleaned[1:-1].strip()
+            break
     if cleaned.startswith("(") and cleaned.endswith(")"):
         negative, cleaned = True, cleaned[1:-1]
     if cleaned.endswith("-"):
