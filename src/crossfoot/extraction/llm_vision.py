@@ -383,18 +383,19 @@ class VisionExtractor:
 
 
 def _user_prompt(doc_type: DocType, field_order: Sequence[FieldName]) -> str:
+    """Say what to extract, not how to shape it. The schema already does that.
+
+    Restating the schema in prose measurably breaks smaller vision models: with
+    the earlier verbose wording, qwen2.5vl returned a valid response carrying an
+    empty line array on every scanned document, which read as an accuracy
+    collapse rather than the prompt fault it was. The same model and schema with
+    this wording returns the correct line count on the same pages.
+    """
     columns = ", ".join(name.value for name in field_order)
-    header = ", ".join(name.value for name in HEADER_FIELDS)
     return (
-        f"Extract this {doc_type.value.replace('_', ' ')}.\n"
-        f"Statement level fields: {header}.\n"
-        f"Line columns, in the order they matter here: {columns}.\n"
-        "Return every value twice: raw exactly as printed, and normalized"
-        " (amounts as plain decimals, dates as YYYY-MM-DD, references without"
-        " surrounding whitespace).\n"
-        "Give each line its row_position, the 1-based index of the row among the table"
-        " rows visible on that page, and optionally bbox as four integers"
-        f" [x0, y0, x1, y1] in a 0 to {BBOX_FRAME} frame with the origin at the top left."
+        f"Extract every field and every line item from this"
+        f" {doc_type.value.replace('_', ' ')}.\n"
+        f"Line columns: {columns}."
     )
 
 
