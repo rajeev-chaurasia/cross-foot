@@ -492,14 +492,20 @@ def _build_field(
     agreement: Mapping[FieldKey, float] | None,
 ) -> ExtractedField:
     family = FIELD_FAMILIES[name]
+    raw_text = strip_control_chars(value.raw)
     canonical, cents, parsed = _canonical(family, strip_control_chars(value.normalized).strip())
+    # The model sometimes normalizes a value it read correctly into something
+    # unparseable. Its own raw reading is still evidence, so fall back to it
+    # rather than discarding a field we can see on the page.
+    if canonical is None:
+        canonical, cents, parsed = _canonical(family, raw_text.strip())
     return ExtractedField(
         field_id=_field_id(doc_id, line_no, name),
         doc_id=doc_id,
         line_no=line_no,
         name=name,
         family=family,
-        raw_text=strip_control_chars(value.raw),
+        raw_text=raw_text,
         value=canonical,
         value_cents=cents,
         value_date=parsed,
