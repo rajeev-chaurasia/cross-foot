@@ -157,7 +157,11 @@ async def test_an_implausible_bbox_is_discarded_silently(bad: list[int]) -> None
 # ---------------------------------------------------------------------------
 
 
-async def test_the_warm_sample_shuffles_the_field_order_deterministically() -> None:
+async def test_the_warm_sample_differs_only_by_temperature_and_repeats() -> None:
+    # The consistency sample used to be perturbed by shuffling the field list into
+    # the prompt as well. Naming internal field names there made smaller models
+    # answer with all-null rows, so the prompt no longer carries them and
+    # temperature is the whole perturbation. The prompt itself must stay stable.
     first = FakeClient([_payload(), _payload()])
     second = FakeClient([_payload(), _payload()])
     await _extract(first)
@@ -165,8 +169,10 @@ async def test_the_warm_sample_shuffles_the_field_order_deterministically() -> N
     prompts = [
         call["messages"][-1]["content"] for client in (first, second) for call in client.calls
     ]
-    assert prompts[0] != prompts[1]  # the warm sample reorders the field list
-    assert prompts[:2] == prompts[2:]  # seeded by doc_id, so the run repeats
+    temperatures = [call["temperature"] for client in (first, second) for call in client.calls]
+    assert temperatures[0] != temperatures[1]  # cold sample is authoritative, warm one probes
+    assert temperatures[:2] == temperatures[2:]  # and the pair repeats run to run
+    assert len(set(prompts)) == 1  # every sample asks the same question
 
 
 async def test_a_field_missing_from_the_warm_sample_disagrees() -> None:

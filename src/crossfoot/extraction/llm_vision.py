@@ -391,12 +391,14 @@ def _user_prompt(doc_type: DocType, field_order: Sequence[FieldName]) -> str:
     collapse rather than the prompt fault it was. The same model and schema with
     this wording returns the correct line count on the same pages.
     """
-    columns = ", ".join(name.value for name in field_order)
-    return (
-        f"Extract every field and every line item from this"
-        f" {doc_type.value.replace('_', ' ')}.\n"
-        f"Line columns: {columns}."
-    )
+    # field_order still drives the schema and the shuffled consistency sample; it
+    # deliberately does not reach the prompt. Naming our internal fields (vin,
+    # line_amount) sends the model hunting for headers the page never prints
+    # ("Unit VIN", "Amount"), and it answers with a correctly shaped row whose
+    # every value is null. Measured across all four doc types, listing columns
+    # produced invalid output on two and all-null rows on a third.
+    del field_order
+    return f"Extract every field and every line item from this {doc_type.value.replace('_', ' ')}."
 
 
 def _repair_prompt(error: str) -> str:
