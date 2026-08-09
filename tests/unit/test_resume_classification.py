@@ -24,7 +24,6 @@ from crossfoot.constants import (
     DocType,
     ExtractionRoute,
     IngestErrorKind,
-    QualityTier,
 )
 from crossfoot.extraction.batch import BatchExtractor, DocumentOutcome, reset_provider_failures
 from crossfoot.extraction.failures import (
@@ -361,6 +360,5 @@ async def _vision_document(client: _CannedVisionClient) -> ExtractedDocument:
         doc_id=LOST,
         file_path=f"files/{LOST}.pdf",
         doc_type=DocType.PARTS_STATEMENT,
-        quality_tier=QualityTier.SCAN_HEAVY,
         images=(PageImage(page=0, png_bytes=PNG_BYTES),),
     )

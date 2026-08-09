@@ -25,7 +25,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from crossfoot.constants import QualityTier
+from crossfoot.constants import ExtractionRoute
 from crossfoot.models.extraction import FieldSignals
 
 DOCUMENTS_DDL = """
@@ -150,7 +150,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
 
 
 def signals_json(
-    quality_tier: QualityTier,
+    route: ExtractionRoute,
     *,
     self_consistency: float | None = None,
     det_llm_agreement: float | None = None,
@@ -169,7 +169,7 @@ def signals_json(
         crossfoot_ok=crossfoot_ok,
         crossfoot_residual_suspect=crossfoot_residual_suspect,
         char_ambiguity=char_ambiguity,
-        quality_tier=quality_tier,
+        route=route,
     ).model_dump_json()
 
 

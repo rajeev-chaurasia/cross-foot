@@ -19,7 +19,6 @@ from crossfoot.constants import (
     IngestErrorKind,
     LineType,
     Oem,
-    QualityTier,
     ReviewStatus,
 )
 from crossfoot.extraction import xlsx as xlsx_module
@@ -165,7 +164,7 @@ def test_generated_workbook_fields_carry_the_spreadsheet_baseline(tmp_path: Path
     render_xlsx(STATEMENT, TEMPLATE_ID, SEED, path)
     doc = extract_xlsx(path, DOC_ID)
     amount = _by_line(doc, 1)[FieldName.LINE_AMOUNT]
-    assert amount.signals.quality_tier is QualityTier.XLSX
+    assert amount.signals.route is ExtractionRoute.XLSX
     assert amount.signals.validator_pass == 1.0
     assert amount.confidence == 1.0
     assert amount.status is ReviewStatus.AUTO_ACCEPTED

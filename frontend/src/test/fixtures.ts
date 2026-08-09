@@ -79,7 +79,7 @@ export const VIN_DETAIL: ReviewItemDetail = {
     crossfoot_ok: null,
     crossfoot_residual_suspect: false,
     char_ambiguity: 0.35,
-    quality_tier: 'scan_heavy',
+    route: 'scanned_pdf',
   },
   document: {
     doc_id: 'doc-a',
@@ -101,7 +101,7 @@ export const AMOUNT_DETAIL: ReviewItemDetail = {
     crossfoot_ok: 0,
     crossfoot_residual_suspect: true,
     char_ambiguity: 0.25,
-    quality_tier: 'clean_digital',
+    route: 'digital_pdf',
   },
   document: {
     doc_id: 'doc-a',
@@ -123,7 +123,7 @@ export const CLAIM_DETAIL: ReviewItemDetail = {
     crossfoot_ok: null,
     crossfoot_residual_suspect: false,
     char_ambiguity: 0.4,
-    quality_tier: 'scan_heavy',
+    route: 'scanned_pdf',
   },
   document: {
     doc_id: 'doc-b',

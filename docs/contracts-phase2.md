@@ -136,8 +136,12 @@ already frozen in `models/extraction.py`:
   of doc_id so it is stable across runs.
 - `validator_pass`: VIN ISO 3779 check digit, date parses and falls inside the
   statement period plus a 60 day grace, amount parses with a sign consistent with its
-  line type.
-- `grammar_match`: reference fullmatches the marque grammar in `REF_GRAMMARS`.
+  line type. AMENDED: the period and the line type are manifest facts, so the date
+  window is now the statement date this extraction produced (or the middle of the
+  document's other dates, never a date's own) and the amount check is the parse alone.
+- `grammar_match`: reference fullmatches the marque grammar in `REF_GRAMMARS`. AMENDED:
+  the marque is the one this document's own reference numbers vote for, falling back to
+  whether any marque recognizes the value when the vote ties or nothing matches.
 - `crossfoot_ok`: extracted line amounts sum to the extracted total within one cent,
   broadcast to every amount field on the document.
 - `crossfoot_residual_suspect`: when crossfoot fails, if (extracted total minus the sum
@@ -145,7 +149,12 @@ already frozen in `models/extraction.py`:
   flagged. This localizes the error instead of penalizing every amount on the page.
 - `char_ambiguity`: fraction of characters in `raw_text` drawn from confusable glyph
   classes {O0, I1l, S5, B8, Z2}.
-- `quality_tier`: categorical, learns per-tier base rates.
+- `quality_tier`: categorical, learns per-tier base rates. AMENDED AND REPLACED by
+  `route`, the `ExtractionRoute` the router read off the file's bytes. The tier is a
+  generator degradation label with no inference time equivalent; an adversarial audit
+  measured it as worth roughly 16 percentage points of review rate, so the published
+  operating point was partly bought with it. The route says the thing about a page that
+  a page actually states: whether it carries a text layer, and which reader served it.
 
 `scorer.py`: hand-rolled logistic regression in numpy, fit per `FieldFamily`. Missing
 signals are encoded as an (indicator, 0.0) pair so absence is learnable. No sklearn.
@@ -357,7 +366,11 @@ through the maintainer and re-freeze. Key entry points:
 
 - The phase 1 import boundary still holds: `extraction`, `confidence`, and `reconcile`
   may not import `generator` or `models.manifest`, and may not read `manifest.json`.
-  The AST contract test covers the new modules automatically.
+  The AST contract test covers the new modules automatically. AMENDED: naming three
+  packages left `crossfoot/scoring.py` outside the net, and that is where the manifest
+  reached the review database. `tests/unit/test_truth_boundary.py` inverts the rule and
+  guards the whole package, exempting only the generator, the eval harness, the manifest
+  model, `ingest_db.py` and `cli.py`, each named with its reason.
 - Anything seeded uses a seed derived from doc_id, never the global RNG and never wall
   clock. Extraction output must be identical across runs in REPLAY mode.
 - Every degraded path is recorded rather than hidden: spillover, repair, cache hits,

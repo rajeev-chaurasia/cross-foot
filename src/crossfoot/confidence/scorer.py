@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
-from crossfoot.constants import FieldFamily, QualityTier
+from crossfoot.constants import ExtractionRoute, FieldFamily
 from crossfoot.models.extraction import FieldSignals
 
 # Deterministic by construction: zero init, fixed schedule, no RNG anywhere.
@@ -19,12 +19,21 @@ LOGIT_CLIP = 40.0
 Vector = npt.NDArray[np.float64]
 Matrix = npt.NDArray[np.float64]
 
-_TIERS: tuple[QualityTier, ...] = tuple(QualityTier)
+# The categorical the model learns base rates per. It is the route the router
+# chose from the file's bytes, never the tier the generator degraded a page to:
+# a scan's severity is not something any document announces, so the model does
+# not get to see it. An unrouted row one-hots to all zeros, which is the same
+# "no information" the absent-signal pairs above express.
+_ROUTES: tuple[ExtractionRoute, ...] = tuple(ExtractionRoute)
 
 
 def encode(field_signals: FieldSignals) -> tuple[float, ...]:
     """Feature row. Optional signals become an (indicator, value) pair, so a
-    missing signal is learnable instead of indistinguishable from a present zero."""
+    missing signal is learnable instead of indistinguishable from a present zero.
+
+    This is the feature side of the fit and it reads `FieldSignals` and nothing
+    else. Truth reaches a fit only as the label argument of `fit`, never here.
+    """
     optional = (
         field_signals.self_consistency,
         field_signals.det_llm_agreement,
@@ -33,12 +42,12 @@ def encode(field_signals: FieldSignals) -> tuple[float, ...]:
         field_signals.crossfoot_ok,
     )
     pairs = [part for value in optional for part in (float(value is not None), value or 0.0)]
-    tiers = [float(field_signals.quality_tier is tier) for tier in _TIERS]
+    routes = [float(field_signals.route is route) for route in _ROUTES]
     return (
         *pairs,
         float(field_signals.crossfoot_residual_suspect),
         field_signals.char_ambiguity,
-        *tiers,
+        *routes,
     )
 
 
@@ -54,7 +63,12 @@ class LogisticModel:
 
 
 def fit(family: FieldFamily, samples: Sequence[tuple[FieldSignals, bool]]) -> LogisticModel:
-    """Batch gradient descent on the L2-penalized logistic loss."""
+    """Batch gradient descent on the L2-penalized logistic loss.
+
+    The pair in each sample is the whole features-versus-labels split: the
+    `FieldSignals` is the feature row and comes from the extraction, the bool is
+    the label and is the only thing truth is allowed to decide.
+    """
     if not samples:
         raise ValueError(f"no training samples for {family}")
     features = np.array([_design_row(encode(signals)) for signals, _ in samples])

@@ -14,11 +14,11 @@ from crossfoot.confidence.calibration import (
     fit_scorers,
     reliability_bins,
 )
-from crossfoot.constants import FieldFamily, QualityTier, SplitName
+from crossfoot.constants import ExtractionRoute, FieldFamily, SplitName
 from crossfoot.models.extraction import FieldSignals
 
-HIGH = FieldSignals(quality_tier=QualityTier.CLEAN_DIGITAL, validator_pass=1.0)
-LOW = FieldSignals(quality_tier=QualityTier.CLEAN_DIGITAL, validator_pass=0.0)
+HIGH = FieldSignals(route=ExtractionRoute.DIGITAL_PDF, validator_pass=1.0)
+LOW = FieldSignals(route=ExtractionRoute.DIGITAL_PDF, validator_pass=0.0)
 
 
 def _confidences(

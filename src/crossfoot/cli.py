@@ -504,9 +504,11 @@ async def _extract_split(
                 doc_id=doc_id,
                 file_path=path.as_posix(),
                 # The harness supplies the doc type; classification is its own
-                # purpose in the ledger and is not wired yet.
+                # purpose in the ledger and is not wired yet. Nothing else about
+                # the record crosses over: the extractor stamps the route it was
+                # dispatched on, so no field carries a degradation label only the
+                # generator could know.
                 doc_type=record.truth.doc_type,
-                quality_tier=record.quality_tier,
                 images=rasterize_pdf(path),
             )
         )
@@ -585,7 +587,7 @@ def _labelled_fields(
     """
     from crossfoot.confidence.signals import attach_signals
     from crossfoot.evals.metrics import field_is_correct
-    from crossfoot.evals.runner import extract_split, load_manifest, signal_context, split_records
+    from crossfoot.evals.runner import extract_split, load_manifest, split_records
 
     manifest = load_manifest(dataset)
     records = {record.doc_id: record for record in split_records(manifest, split)}
@@ -596,10 +598,12 @@ def _labelled_fields(
         if doc.doc_id not in records:
             continue
         record = records[doc.doc_id]
-        context = signal_context(record)
-        if context is None or record.truth is None:
+        if record.truth is None:
             continue
-        scored = attach_signals(doc, context)
+        # Features from the extraction, labels from truth. `attach_signals` is
+        # handed the document alone so nothing the manifest knows can become a
+        # feature; `record.truth` decides only whether a reading was right.
+        scored = attach_signals(doc)
         for field in (*scored.header_fields, *scored.line_fields):
             correct = field_is_correct(field, record.truth)
             if correct is not None:

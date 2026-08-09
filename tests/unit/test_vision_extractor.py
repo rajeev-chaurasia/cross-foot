@@ -13,7 +13,7 @@ import pytest
 from pdf_fixtures import TRUTH_DOC, minimal_pdf, statement_items
 from PIL import Image
 
-from crossfoot.constants import DocType, FieldName, QualityTier
+from crossfoot.constants import DocType, FieldName
 from crossfoot.extraction import llm_vision
 from crossfoot.extraction.llm_vision import (
     MAX_IMAGE_EDGE_PX,
@@ -71,7 +71,6 @@ async def _extract(client: FakeClient) -> ExtractedDocument:
         doc_id=DOC_ID,
         file_path="files/statement.pdf",
         doc_type=DocType.PARTS_STATEMENT,
-        quality_tier=QualityTier.SCAN_LIGHT,
         images=(PageImage(page=0, png_bytes=PNG_BYTES),),
     )
 

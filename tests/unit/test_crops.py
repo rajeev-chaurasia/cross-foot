@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from crossfoot.constants import CropKind, FieldFamily, FieldName, FieldSource, QualityTier
+from crossfoot.constants import CropKind, ExtractionRoute, FieldFamily, FieldName, FieldSource
 from crossfoot.extraction import crops
 from crossfoot.models.extraction import BBox, ExtractedField, FieldSignals
 
@@ -45,7 +45,7 @@ def _field(**kwargs: object) -> ExtractedField:
         "name": FieldName.LINE_AMOUNT,
         "family": FieldFamily.AMOUNT,
         "source": FieldSource.LLM_VISION,
-        "signals": FieldSignals(quality_tier=QualityTier.SCAN_LIGHT),
+        "signals": FieldSignals(route=ExtractionRoute.SCANNED_PDF),
     }
     return ExtractedField.model_validate(defaults | kwargs)
 

@@ -64,6 +64,19 @@ CSV = QualityTier.CSV
 CLEAN = QualityTier.CLEAN_DIGITAL
 XLSX = QualityTier.XLSX
 
+# The route a document of each tier actually takes. Field signals carry the
+# route, because that is what a router reads off a file; the tier stays a
+# reporting dimension on the scorecard, which is a thing an eval knows and a
+# production pipeline does not.
+ROUTES: dict[QualityTier, ExtractionRoute] = {
+    QualityTier.CLEAN_DIGITAL: ExtractionRoute.DIGITAL_PDF,
+    QualityTier.SCAN_LIGHT: ExtractionRoute.SCANNED_PDF,
+    QualityTier.SCAN_HEAVY: ExtractionRoute.SCANNED_PDF,
+    QualityTier.CSV: ExtractionRoute.CSV,
+    QualityTier.XLSX: ExtractionRoute.XLSX,
+    QualityTier.CORRUPTED: ExtractionRoute.UNPROCESSABLE,
+}
+
 # Doc A: parts statement, tier csv, split train, with a previous balance.
 # Lines: 100000 + 25000 = 125000 = subtotal.
 # Total: 20000 previous + 125000 lines + 0 adjustments = 145000, so the delta is 0.
@@ -267,7 +280,7 @@ def _field(
         value_cents=value_cents,
         value_date=value_date,
         source=FieldSource.DETERMINISTIC,
-        signals=FieldSignals(quality_tier=tier),
+        signals=FieldSignals(route=ROUTES[tier]),
         confidence=1.0,
         status=ReviewStatus.AUTO_ACCEPTED,
     )

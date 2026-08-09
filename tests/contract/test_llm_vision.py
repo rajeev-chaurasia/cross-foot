@@ -9,7 +9,7 @@ pin the smallest surface that can express the frozen behaviour:
     llm_vision.PageImage(page, png_bytes)
     llm_vision.response_model_for(doc_type) -> type[BaseModel]
     llm_vision.VisionExtractor(client)
-        .extract_document(doc_id, file_path, doc_type, quality_tier, images)
+        .extract_document(doc_id, file_path, doc_type, images)
             -> ExtractedDocument
         .structured_output_failures -> int
 
@@ -29,10 +29,10 @@ from pydantic import ValidationError
 from crossfoot.constants import (
     FIELD_FAMILIES,
     DocType,
+    ExtractionRoute,
     FieldFamily,
     FieldName,
     FieldSource,
-    QualityTier,
     ReviewStatus,
 )
 from crossfoot.llm.client import ChatResult, ChatUsage
@@ -42,7 +42,7 @@ llm_vision = pytest.importorskip("crossfoot.extraction.llm_vision")
 
 DOC_ID = "doc-parts_statement-dlr-meridian-202607-01"
 FILE_PATH = "files/doc-parts_statement-dlr-meridian-202607-01.pdf"
-TIER = QualityTier.SCAN_LIGHT
+ROUTE = ExtractionRoute.SCANNED_PDF
 
 # The fake client never decodes these bytes; it only proves images reach the call.
 PNG_BYTES = b"\x89PNG\r\n\x1a\n"
@@ -212,7 +212,6 @@ async def _extract(
         doc_id=DOC_ID,
         file_path=FILE_PATH,
         doc_type=doc_type,
-        quality_tier=TIER,
         images=(_page_image(),),
     )
     if inspect.isawaitable(result):
@@ -313,7 +312,7 @@ async def test_valid_response_maps_to_extracted_fields() -> None:
     for field in _all_fields(doc):
         assert field.source is FieldSource.LLM_VISION, field.name
         assert field.family is FIELD_FAMILIES[field.name], field.name
-        assert field.signals.quality_tier is TIER, field.name
+        assert field.signals.route is ROUTE, field.name
 
     assert _one(doc, FieldName.STATEMENT_NUMBER).value == "PS-2026-07-001"
     assert _one(doc, FieldName.STATEMENT_DATE).value_date == date(2026, 7, 31)

@@ -36,6 +36,7 @@ from crossfoot import pdfium
 from crossfoot.api import create_app
 from crossfoot.constants import (
     CropKind,
+    ExtractionRoute,
     FieldFamily,
     FieldName,
     FieldSource,
@@ -101,7 +102,7 @@ def _field_id(doc_index: int, field_index: int) -> str:
 
 def _seed(connection: sqlite3.Connection) -> None:
     """Documents of several fields each, plus one document that cannot be read."""
-    signals = FieldSignals(quality_tier=QualityTier.CLEAN_DIGITAL).model_dump_json()
+    signals = FieldSignals(route=ExtractionRoute.DIGITAL_PDF).model_dump_json()
     for doc_index in range(DOCS):
         doc_id = _doc_id(doc_index)
         connection.execute(

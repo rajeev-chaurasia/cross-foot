@@ -8,7 +8,7 @@ and turning a numeric cell into exact integer cents.
 The tabular baseline is imported rather than restated. Header matching, value
 parsing, the totals rule, and the resource ceilings are the CSV extractor's, so a
 spreadsheet and a delimited export of the same statement are read by one set of
-rules and cannot drift apart. Only the reader and the quality tier differ.
+rules and cannot drift apart. Only the reader and the route differ.
 """
 
 import logging
@@ -28,7 +28,6 @@ from crossfoot.constants import (
     FieldName,
     FieldSource,
     IngestErrorKind,
-    QualityTier,
     ReviewStatus,
 )
 from crossfoot.extraction.normalize import (
@@ -307,7 +306,7 @@ def _build_field(doc_id: str, line_no: int, name: FieldName, text: str) -> Extra
         signals=FieldSignals(
             validator_pass=1.0 if parsed else 0.0,
             grammar_match=grammar,
-            quality_tier=QualityTier.XLSX,
+            route=ExtractionRoute.XLSX,
         ),
         confidence=1.0 if parsed else 0.0,
         status=ReviewStatus.AUTO_ACCEPTED if parsed else ReviewStatus.NEEDS_REVIEW,

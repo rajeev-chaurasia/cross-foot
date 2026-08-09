@@ -27,7 +27,6 @@ from crossfoot.constants import (
     FieldName,
     FieldSource,
     IngestErrorKind,
-    QualityTier,
 )
 from crossfoot.extraction.normalize import (
     format_cents,
@@ -146,9 +145,7 @@ class _Column:
     right: float
 
 
-def extract_pdf(
-    path: Path, doc_id: str, *, quality_tier: QualityTier = QualityTier.CLEAN_DIGITAL
-) -> ExtractedDocument:
+def extract_pdf(path: Path, doc_id: str) -> ExtractedDocument:
     """Extract a born-digital statement PDF; never raises."""
     size = _file_size(path)
     if size is None:
@@ -166,8 +163,8 @@ def extract_pdf(
         return _unprocessable(path, doc_id, IngestErrorKind.TRUNCATED, f"unreadable pdf: {error}")
     if not pages:
         return _unprocessable(path, doc_id, IngestErrorKind.TRUNCATED, "pdf carries no pages")
-    header_fields = _header_fields(pages, doc_id, quality_tier)
-    line_fields = _line_fields(pages, doc_id, quality_tier)
+    header_fields = _header_fields(pages, doc_id)
+    line_fields = _line_fields(pages, doc_id)
     doc = ExtractedDocument(
         doc_id=doc_id,
         file_path=path.as_posix(),
@@ -258,9 +255,7 @@ def _match_label(row: Sequence[Word], start: int, phrases: Sequence[str]) -> int
 # ---------------------------------------------------------------------------
 
 
-def _line_fields(
-    pages: Sequence[PageWords], doc_id: str, quality_tier: QualityTier
-) -> tuple[ExtractedField, ...]:
+def _line_fields(pages: Sequence[PageWords], doc_id: str) -> tuple[ExtractedField, ...]:
     fields: list[ExtractedField] = []
     line_no = 0
     for page in pages:
@@ -277,7 +272,7 @@ def _line_fields(
                 return tuple(fields)
             line_no += 1
             fields.extend(
-                _build_field(doc_id, name, cell, page, line_no=line_no, tier=quality_tier)
+                _build_field(doc_id, name, cell, page, line_no=line_no)
                 for name, cell in cells.items()
             )
     return tuple(fields)
@@ -377,9 +372,7 @@ def _parses(cells: dict[FieldName, tuple[Word, ...]], name: FieldName) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _header_fields(
-    pages: Sequence[PageWords], doc_id: str, quality_tier: QualityTier
-) -> tuple[ExtractedField, ...]:
+def _header_fields(pages: Sequence[PageWords], doc_id: str) -> tuple[ExtractedField, ...]:
     fields: list[ExtractedField] = []
     seen: set[FieldName] = set()
     for page in pages:
@@ -387,7 +380,7 @@ def _header_fields(
         for name, words in _labelled_values(rows):
             if name in seen:
                 continue
-            field = _build_field(doc_id, name, words, page, line_no=None, tier=quality_tier)
+            field = _build_field(doc_id, name, words, page, line_no=None)
             if field.value is None:
                 continue  # a label whose neighbour did not parse names nothing
             seen.add(name)
@@ -487,7 +480,6 @@ def _build_field(
     page: PageWords,
     *,
     line_no: int | None,
-    tier: QualityTier,
 ) -> ExtractedField:
     family = FIELD_FAMILIES[name]
     text = _text_of(words)
@@ -506,7 +498,10 @@ def _build_field(
         source=FieldSource.DETERMINISTIC,
         bbox=union_bbox(words, page),
         crop_kind=CropKind.EXACT_BBOX,
-        signals=FieldSignals(validator_pass=1.0 if value is not None else 0.0, quality_tier=tier),
+        signals=FieldSignals(
+            validator_pass=1.0 if value is not None else 0.0,
+            route=ExtractionRoute.DIGITAL_PDF,
+        ),
     )
 
 

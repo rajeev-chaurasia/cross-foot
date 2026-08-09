@@ -134,11 +134,11 @@ export function signalRows(
           : 'No easily confused characters in this value.',
     },
     {
-      key: 'quality_tier',
-      label: 'Source quality',
-      display: humanize(signals.quality_tier),
+      key: 'route',
+      label: 'Read by',
+      display: signals.route === null ? 'not available' : humanize(signals.route),
       verdict: 'info',
-      note: 'The tier of the page this crop came from.',
+      note: 'The extractor this document was routed to, decided from its own bytes.',
     },
   ]
   return rows

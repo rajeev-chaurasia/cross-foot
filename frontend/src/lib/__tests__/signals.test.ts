@@ -25,11 +25,11 @@ describe('signalRows', () => {
     expect(residual?.display).toBe('suspect')
   })
 
-  it('carries the source quality tier as context, not as a verdict', () => {
+  it('carries the route as context, not as a verdict', () => {
     const rows = signalRows(CLAIM_DETAIL.signals, 'reference', 'claim_number')
-    const tier = rows.find((row) => row.key === 'quality_tier')
-    expect(tier?.verdict).toBe('info')
-    expect(tier?.display).toBe('Scan heavy')
+    const route = rows.find((row) => row.key === 'route')
+    expect(route?.verdict).toBe('info')
+    expect(route?.display).toBe('Scanned pdf')
   })
 })
 
@@ -52,7 +52,7 @@ describe('flagReasons', () => {
           crossfoot_ok: 1,
           crossfoot_residual_suspect: false,
           char_ambiguity: 0,
-          quality_tier: 'csv',
+          route: 'csv',
         },
         'amount',
         'line_amount',

@@ -60,14 +60,14 @@ MISSING_FIELD = "fld-nope-9999"
 REVIEWER = "rc"
 
 AMOUNT_SIGNALS = signals_json(
-    QualityTier.CLEAN_DIGITAL,
+    ExtractionRoute.DIGITAL_PDF,
     self_consistency=0.5,
     validator_pass=1.0,
     crossfoot_ok=0.0,
     char_ambiguity=0.25,
 )
-PLAIN_SIGNALS = signals_json(QualityTier.CLEAN_DIGITAL, validator_pass=1.0)
-SCAN_SIGNALS = signals_json(QualityTier.SCAN_HEAVY, self_consistency=0.0, char_ambiguity=0.4)
+PLAIN_SIGNALS = signals_json(ExtractionRoute.DIGITAL_PDF, validator_pass=1.0)
+SCAN_SIGNALS = signals_json(ExtractionRoute.SCANNED_PDF, self_consistency=0.0, char_ambiguity=0.4)
 
 # Ascending confidence, then field_id. The two fields at 0.20 are the tie:
 # fld-a-0001 sorts before fld-a-0002 on field_id alone.

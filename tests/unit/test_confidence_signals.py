@@ -1,4 +1,10 @@
-"""Edge cases for crossfoot.confidence.signals beyond the contract fixtures."""
+"""Edge cases for crossfoot.confidence.signals beyond the contract fixtures.
+
+Every case here builds a document and asks what the signals say about it. That is
+the whole point of the module after the leak was closed: nothing is passed in
+beside the extraction, so a test that cannot express its setup as a document is a
+test of something the pipeline could not compute in production either.
+"""
 
 from collections.abc import Mapping
 from datetime import date
@@ -10,6 +16,8 @@ from crossfoot.confidence.signals import (
     amount_sign_consistent,
     attach_signals,
     crossfoot_delta_cents,
+    date_windows,
+    infer_oem,
 )
 from crossfoot.constants import (
     FIELD_FAMILIES,
@@ -19,13 +27,11 @@ from crossfoot.constants import (
     FieldSource,
     LineType,
     Oem,
-    QualityTier,
 )
 from crossfoot.models.extraction import ExtractedDocument, ExtractedField, FieldSignals
 
 DOC_ID = "doc-parts_statement-dlr-meridian-202607-99"
-PERIOD_START = date(2026, 7, 1)
-PERIOD_END = date(2026, 7, 31)
+STATEMENT_DATE = date(2026, 7, 31)
 VIN_GOOD = "1FTFW1ET9DFC10312"
 
 
@@ -48,18 +54,19 @@ def _field(
         value_cents=value_cents,
         value_date=value_date,
         source=FieldSource.LLM_VISION,
-        signals=FieldSignals(quality_tier=QualityTier.CLEAN_DIGITAL),
+        signals=FieldSignals(),
     )
 
 
 def _doc(
     header: tuple[ExtractedField, ...] = (),
     lines: tuple[ExtractedField, ...] = (),
+    route: ExtractionRoute = ExtractionRoute.DIGITAL_PDF,
 ) -> ExtractedDocument:
     return ExtractedDocument(
         doc_id=DOC_ID,
         file_path=f"files/{DOC_ID}.pdf",
-        route=ExtractionRoute.DIGITAL_PDF,
+        route=route,
         doc_type=DocType.PARTS_STATEMENT,
         header_fields=header,
         line_fields=lines,
@@ -73,21 +80,23 @@ def _amounts(*cents: int) -> tuple[ExtractedField, ...]:
     )
 
 
+def _statement_date(value: date = STATEMENT_DATE) -> ExtractedField:
+    return _field(FieldName.STATEMENT_DATE, value_date=value)
+
+
 def _context(
     *,
-    line_types: Mapping[int, LineType] | None = None,
     self_consistency: Mapping[str, float] | None = None,
     det_llm_agreement: Mapping[str, float] | None = None,
 ) -> SignalContext:
     return SignalContext(
-        oem=Oem.MERIDIAN,
-        period_start=PERIOD_START,
-        period_end=PERIOD_END,
-        quality_tier=QualityTier.CLEAN_DIGITAL,
         self_consistency=self_consistency or {},
         det_llm_agreement=det_llm_agreement or {},
-        line_types=line_types or {},
     )
+
+
+def _claim(line_no: int, value: str | None) -> ExtractedField:
+    return _field(FieldName.CLAIM_NUMBER, line_no=line_no, value=value)
 
 
 def test_no_extracted_total_leaves_crossfoot_unavailable() -> None:
@@ -144,36 +153,152 @@ def test_vin_carries_no_grammar_signal() -> None:
     assert scored.line_fields[0].signals.grammar_match is None
 
 
-def test_reference_grammar_signal_is_scored_against_the_marque() -> None:
-    good = _field(FieldName.CLAIM_NUMBER, line_no=1, value="4821A00551")
-    bad = _field(FieldName.CLAIM_NUMBER, line_no=2, value="NS12345678")
-    scored = attach_signals(_doc(lines=(good, bad)), _context())
+# ---------------------------------------------------------------------------
+# Marque: elected by the extraction, never read from the manifest
+# ---------------------------------------------------------------------------
+
+
+def test_the_document_elects_the_marque_its_own_references_fit() -> None:
+    # Three Meridian claim numbers against one Northstar-shaped one. Meridian
+    # wins the vote, so the odd value is measured against Meridian and fails.
+    lines = (
+        _claim(1, "4821A00551"),
+        _claim(2, "4821A00552"),
+        _claim(3, "4821A00553"),
+        _claim(4, "NS12345678"),
+    )
+    doc = _doc(lines=lines)
+    assert infer_oem(doc) is Oem.MERIDIAN
+    scored = attach_signals(doc, _context())
+    assert [f.signals.grammar_match for f in scored.line_fields] == [1.0, 1.0, 1.0, 0.0]
+
+
+def test_a_value_no_marque_recognizes_fails_the_grammar() -> None:
+    lines = (_claim(1, "4821A00551"), _claim(2, "4821A0055"))  # second is a digit short
+    scored = attach_signals(_doc(lines=lines), _context())
     assert scored.line_fields[0].signals.grammar_match == 1.0
     assert scored.line_fields[1].signals.grammar_match == 0.0
+
+
+def test_a_tied_vote_elects_nobody_and_asks_whether_any_marque_would_do() -> None:
+    # One Meridian claim and one Northstar claim: nothing to choose between them.
+    # Both values are still real reference numbers somewhere, and saying so is
+    # weaker than naming a marque, which is the honest answer here.
+    lines = (_claim(1, "4821A00551"), _claim(2, "NS12345678"), _claim(3, "not-a-claim"))
+    doc = _doc(lines=lines)
+    assert infer_oem(doc) is None
+    scored = attach_signals(doc, _context())
+    assert [f.signals.grammar_match for f in scored.line_fields] == [1.0, 1.0, 0.0]
+
+
+def test_a_missing_reference_value_fails_rather_than_going_absent() -> None:
+    scored = attach_signals(_doc(lines=(_claim(1, None),)), _context())
+    assert scored.line_fields[0].signals.grammar_match == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Dates: the window comes from the dates this extraction produced
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     ("value", "expected"),
     [(date(2026, 7, 15), 1.0), (date(2026, 9, 29), 1.0), (date(2026, 9, 30), 0.0)],
 )
-def test_date_validator_uses_the_grace_window(value: date, expected: float) -> None:
+def test_line_dates_are_judged_against_the_extracted_statement_date(
+    value: date, expected: float
+) -> None:
+    # The statement date this same run read off the page anchors the window, and
+    # 2026-07-31 plus the 60 grace days ends on 2026-09-29.
     line = _field(FieldName.LINE_DATE, line_no=1, value_date=value)
-    scored = attach_signals(_doc(lines=(line,)), _context())
+    scored = attach_signals(_doc(header=(_statement_date(),), lines=(line,)), _context())
     assert scored.line_fields[0].signals.validator_pass == expected
 
 
-def test_amount_sign_is_checked_only_when_the_line_type_is_known() -> None:
-    line = _field(FieldName.LINE_AMOUNT, line_no=1, value_cents=-100)
-    without = attach_signals(_doc(lines=(line,)), _context())
-    with_type = attach_signals(_doc(lines=(line,)), _context(line_types={1: LineType.CHARGE}))
-    assert without.line_fields[0].signals.validator_pass == 1.0
-    assert with_type.line_fields[0].signals.validator_pass == 0.0
+def test_the_statement_date_is_judged_against_the_other_dates() -> None:
+    # It cannot vouch for itself, so the line dates are its window: a statement
+    # date a year away from every line on the page is the misread it looks like.
+    lines = tuple(
+        _field(FieldName.LINE_DATE, line_no=index, value_date=date(2026, 7, day))
+        for index, day in enumerate((10, 12, 14), start=1)
+    )
+    near = attach_signals(_doc(header=(_statement_date(),), lines=lines), _context())
+    far = attach_signals(
+        _doc(header=(_statement_date(date(2027, 7, 31)),), lines=lines), _context()
+    )
+    assert near.header_fields[0].signals.validator_pass == 1.0
+    assert far.header_fields[0].signals.validator_pass == 0.0
+
+
+def test_a_date_with_nothing_to_compare_against_has_no_window() -> None:
+    # One date and nothing else: any window would be the field vouching for
+    # itself, so the signal is absent, which the scorer encodes as absent.
+    line = _field(FieldName.LINE_DATE, line_no=1, value_date=date(2026, 7, 15))
+    scored = attach_signals(_doc(lines=(line,)), _context())
+    assert scored.line_fields[0].signals.validator_pass is None
+
+
+def test_an_unparsed_date_fails_whether_or_not_a_window_exists() -> None:
+    line = _field(FieldName.LINE_DATE, line_no=1, value="31/13/2026")
+    scored = attach_signals(_doc(lines=(line,)), _context())
+    assert scored.line_fields[0].signals.validator_pass == 0.0
+
+
+def test_a_document_with_no_statement_date_still_anchors_on_its_line_dates() -> None:
+    lines = (
+        _field(FieldName.LINE_DATE, line_no=1, value_date=date(2026, 7, 10)),
+        _field(FieldName.LINE_DATE, line_no=2, value_date=date(2026, 7, 12)),
+        _field(FieldName.LINE_DATE, line_no=3, value_date=date(2020, 1, 1)),
+    )
+    scored = attach_signals(_doc(lines=lines), _context())
+    assert [f.signals.validator_pass for f in scored.line_fields] == [1.0, 1.0, 0.0]
+
+
+def test_date_windows_are_empty_for_a_document_with_no_dates() -> None:
+    assert date_windows(_doc(lines=_amounts(100))) == {}
+
+
+# ---------------------------------------------------------------------------
+# Amounts: line type is never extracted, so it gates nothing
+# ---------------------------------------------------------------------------
+
+
+def test_the_amount_validator_is_a_parse_and_nothing_more() -> None:
+    # A negative amount used to fail whenever the manifest called its line a
+    # charge. No extractor produces a line type, so a document cannot be scored
+    # on one; the arithmetic that stands in for it is the crossfoot beside it.
+    negative = _field(FieldName.LINE_AMOUNT, line_no=1, value_cents=-100)
+    positive = _field(FieldName.LINE_AMOUNT, line_no=2, value_cents=100)
+    unparsed = _field(FieldName.LINE_AMOUNT, line_no=3, value="$ ??")
+    scored = attach_signals(_doc(lines=(negative, positive, unparsed)), _context())
+    assert [f.signals.validator_pass for f in scored.line_fields] == [1.0, 1.0, 0.0]
 
 
 @pytest.mark.parametrize("line_type", [LineType.ADJUSTMENT, LineType.PAYMENT])
 @pytest.mark.parametrize("cents", [-100, 100])
 def test_unconstrained_line_types_accept_either_sign(cents: int, line_type: LineType) -> None:
     assert amount_sign_consistent(cents, line_type) is True
+
+
+# ---------------------------------------------------------------------------
+# Route and upstream measurements
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "route", [ExtractionRoute.DIGITAL_PDF, ExtractionRoute.SCANNED_PDF, ExtractionRoute.CSV]
+)
+def test_every_field_records_the_route_the_router_chose(route: ExtractionRoute) -> None:
+    doc = _doc(header=(_statement_date(),), lines=_amounts(100), route=route)
+    scored = attach_signals(doc, _context())
+    for scored_field in (*scored.header_fields, *scored.line_fields):
+        assert scored_field.signals.route is route
+
+
+def test_signals_attach_without_any_context_at_all() -> None:
+    # Production has no context to pass; the default has to work.
+    scored = attach_signals(_doc(header=(_statement_date(),), lines=_amounts(100)))
+    assert scored.line_fields[0].signals.route is ExtractionRoute.DIGITAL_PDF
 
 
 def test_upstream_agreement_maps_reach_the_signals() -> None:
@@ -191,3 +316,12 @@ def test_absent_agreement_stays_none() -> None:
     scored = attach_signals(_doc(lines=(line,)), _context())
     assert scored.line_fields[0].signals.self_consistency is None
     assert scored.line_fields[0].signals.det_llm_agreement is None
+
+
+def test_a_measurement_the_extractor_made_survives_rescoring() -> None:
+    # The vision extractor measures k=2 agreement while reading and nothing can
+    # recompute it later, so rescoring must carry it rather than blank it.
+    line = _field(FieldName.LINE_AMOUNT, line_no=1, value_cents=100)
+    measured = line.model_copy(update={"signals": FieldSignals(self_consistency=1.0)})
+    scored = attach_signals(_doc(lines=(measured,)), _context())
+    assert scored.line_fields[0].signals.self_consistency == 1.0

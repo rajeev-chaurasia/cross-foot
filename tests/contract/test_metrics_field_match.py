@@ -12,11 +12,11 @@ import pytest
 from crossfoot.constants import (
     FIELD_FAMILIES,
     DocType,
+    ExtractionRoute,
     FieldName,
     FieldSource,
     LineType,
     Oem,
-    QualityTier,
     ReviewStatus,
 )
 from crossfoot.models.extraction import ExtractedField, FieldSignals
@@ -106,7 +106,7 @@ def make_field(
         value_cents=value_cents,
         value_date=value_date,
         source=FieldSource.DETERMINISTIC,
-        signals=FieldSignals(quality_tier=QualityTier.CSV),
+        signals=FieldSignals(route=ExtractionRoute.CSV),
         confidence=1.0,
         status=ReviewStatus.AUTO_ACCEPTED,
     )

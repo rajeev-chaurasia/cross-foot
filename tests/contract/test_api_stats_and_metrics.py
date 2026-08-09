@@ -62,6 +62,20 @@ from crossfoot.models.scorecard import (
 
 api = pytest.importorskip("crossfoot.api")
 
+# The route a document of each tier actually takes. Field signals carry the
+# route, because that is what a router reads off a file; the tier stays a
+# documents-table column, which is a thing this dataset knows and a production
+# pipeline does not.
+ROUTES: dict[QualityTier, ExtractionRoute] = {
+    QualityTier.CLEAN_DIGITAL: ExtractionRoute.DIGITAL_PDF,
+    QualityTier.SCAN_LIGHT: ExtractionRoute.SCANNED_PDF,
+    QualityTier.SCAN_HEAVY: ExtractionRoute.SCANNED_PDF,
+    QualityTier.CSV: ExtractionRoute.CSV,
+    QualityTier.XLSX: ExtractionRoute.XLSX,
+    QualityTier.CORRUPTED: ExtractionRoute.UNPROCESSABLE,
+}
+
+
 SUMMARY_FIELDS = frozenset(
     {
         "documents_processed",
@@ -259,7 +273,7 @@ def _amount_field(
         value_cents=1_000,
         confidence=confidence,
         status=status,
-        signals=signals_json(tier, validator_pass=1.0),
+        signals=signals_json(ROUTES[tier], validator_pass=1.0),
     )
 
 

@@ -12,7 +12,6 @@ from crossfoot.constants import (
     FieldName,
     FieldSource,
     IngestErrorKind,
-    QualityTier,
     ReviewStatus,
 )
 
@@ -30,7 +29,13 @@ class BBox(BaseModel):
 
 
 class FieldSignals(BaseModel):
-    """Raw evidence feeding the confidence model. None means signal unavailable."""
+    """Raw evidence feeding the confidence model. None means signal unavailable.
+
+    Every member is computed from the artifact and the extraction alone. Nothing
+    here may come from the dataset manifest: a confidence score is a claim about
+    what the pipeline can tell without an answer key, so a feature only the
+    generator could supply inflates that claim by exactly what the generator knew.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -41,7 +46,11 @@ class FieldSignals(BaseModel):
     crossfoot_ok: float | None = None
     crossfoot_residual_suspect: bool = False
     char_ambiguity: float = 0.0
-    quality_tier: QualityTier
+    # Which extractor the router sent this document to, decided from the file's
+    # own bytes. It stands where the generator's quality tier used to: nothing in
+    # a real PDF announces that it is a heavy scan, but every document announces
+    # whether it carries a text layer, and that is what this says.
+    route: ExtractionRoute | None = None
 
 
 class ExtractedField(BaseModel):

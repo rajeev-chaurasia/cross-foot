@@ -12,7 +12,7 @@ smallest surface that can express it:
     signals.date_within_period(value, period_start, period_end) -> bool
     signals.amount_sign_consistent(amount_cents, line_type) -> bool
     signals.char_ambiguity(text) -> float
-    signals.SignalContext(oem, period_start, period_end, quality_tier)
+    signals.SignalContext(self_consistency, det_llm_agreement)
     signals.attach_signals(doc, context) -> ExtractedDocument
 
     scorer.encode(field_signals) -> tuple[float, ...]
@@ -28,6 +28,15 @@ smallest surface that can express it:
     calibration.expected_calibration_error(bins) -> float
 
 Every expected number is worked out by hand in the comment tables.
+
+One signature moved after phase 2 froze it. `SignalContext` used to carry the
+true marque, the true statement period, and the generator's quality tier, and
+`attach_signals` copied that tier onto every field, where the scorer one-hot
+encoded it as a feature. An adversarial audit measured what that was worth: the
+published 16.02% review rate was partly bought with a degradation label no real
+document carries. The signals now come off the artifact and the extraction, so
+the context holds only the upstream measurements a field's own row cannot, and
+this file pins the honest shape rather than the one that was refuted.
 """
 
 from datetime import date
@@ -44,7 +53,6 @@ from crossfoot.constants import (
     FieldSource,
     LineType,
     Oem,
-    QualityTier,
     SplitName,
 )
 from crossfoot.models.extraction import ExtractedDocument, ExtractedField, FieldSignals
@@ -54,7 +62,6 @@ signals = pytest.importorskip("crossfoot.confidence.signals")
 scorer = pytest.importorskip("crossfoot.confidence.scorer")
 calibration = pytest.importorskip("crossfoot.confidence.calibration")
 
-CLEAN = QualityTier.CLEAN_DIGITAL
 PERIOD_START = date(2026, 7, 1)
 PERIOD_END = date(2026, 7, 31)
 
@@ -73,7 +80,6 @@ def _field(
     value_cents: int | None = None,
     value_date: date | None = None,
     raw_text: str | None = None,
-    tier: QualityTier = CLEAN,
 ) -> ExtractedField:
     return ExtractedField(
         field_id=f"fld-{doc_id}-{line_no}-{name}",
@@ -86,7 +92,7 @@ def _field(
         value_cents=value_cents,
         value_date=value_date,
         source=FieldSource.LLM_VISION,
-        signals=FieldSignals(quality_tier=tier),
+        signals=FieldSignals(),
     )
 
 
@@ -256,12 +262,9 @@ GOOD_DOC = BROKEN_DOC.model_copy(
     }
 )
 
-CONTEXT_KWARGS: dict[str, Any] = {
-    "oem": Oem.MERIDIAN,
-    "period_start": PERIOD_START,
-    "period_end": PERIOD_END,
-    "quality_tier": CLEAN,
-}
+# Nothing from the manifest survives here. The context holds only what the
+# extractor measured while reading, and both maps are empty for these fixtures.
+CONTEXT_KWARGS: dict[str, Any] = {}
 
 
 def _attach(doc: ExtractedDocument) -> ExtractedDocument:
@@ -303,10 +306,13 @@ def test_document_that_foots_gets_crossfoot_ok_and_no_suspects() -> None:
         assert field.signals.crossfoot_residual_suspect is False, field.field_id
 
 
-def test_attach_signals_records_the_quality_tier() -> None:
+def test_attach_signals_records_the_route_the_router_chose() -> None:
+    # The route replaced the quality tier. It says the same useful thing about a
+    # page (how it had to be read) and, unlike a degradation label, a real
+    # document states it: this one carries a text layer, so it routed digital.
     scored = _attach(GOOD_DOC)
     for field in (*scored.header_fields, *scored.line_fields):
-        assert field.signals.quality_tier is CLEAN, field.field_id
+        assert field.signals.route is ExtractionRoute.DIGITAL_PDF, field.field_id
 
 
 # ---------------------------------------------------------------------------
@@ -320,14 +326,12 @@ def _sig(
     validator_pass: float | None = None,
     grammar_match: float | None = None,
     char_ambiguity: float = 0.0,
-    tier: QualityTier = CLEAN,
 ) -> FieldSignals:
     return FieldSignals(
         self_consistency=self_consistency,
         validator_pass=validator_pass,
         grammar_match=grammar_match,
         char_ambiguity=char_ambiguity,
-        quality_tier=tier,
     )
 
 

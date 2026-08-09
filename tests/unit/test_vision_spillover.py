@@ -26,7 +26,6 @@ from crossfoot.constants import (
     FieldName,
     IngestErrorKind,
     Provider,
-    QualityTier,
 )
 from crossfoot.costs import CostLedger, Purpose
 from crossfoot.evals.runner import ExtractionRun, VisionDegradations, run_notes
@@ -153,7 +152,6 @@ async def extract(extractor: VisionExtractor, doc_id: str = DOC_ID) -> Extracted
         doc_id=doc_id,
         file_path=FILE_PATH,
         doc_type=DocType.PARTS_STATEMENT,
-        quality_tier=QualityTier.SCAN_LIGHT,
         images=(PageImage(page=0, png_bytes=PNG_BYTES),),
     )
 

@@ -1,7 +1,26 @@
-"""Per-field evidence for the confidence model, assembled from the extraction itself."""
+"""Per-field evidence for the confidence model, assembled from the extraction itself.
+
+FEATURES COME FROM THE ARTIFACT, LABELS COME FROM TRUTH. That split is the thing
+the whole eval rests on, so it is worth naming here rather than leaving it to be
+inferred. Everything this module produces is a feature, and a feature is only
+honest if the pipeline could compute it for a document nobody holds an answer key
+for. Fitting still needs truth, but only to say whether a field was read
+correctly; that label lives with the caller and never reaches a `FieldSignals`.
+
+Four inputs used to arrive from the dataset manifest and have been replaced:
+
+- the generator's quality tier, by the route the router read off the file bytes;
+- the true statement period, by the dates this same extraction produced;
+- the true marque, by the marque this extraction's own references vote for;
+- the true per-line type, by nothing, because line type is never extracted.
+
+`SignalContext` carries the only evidence a field's own row cannot: measurements
+the extractor made while reading the page.
+"""
 
 import re
-from collections.abc import Mapping
+import statistics
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -13,11 +32,11 @@ from crossfoot.constants import (
     VIN_CHECK_DIGIT_INDEX,
     VIN_LENGTH,
     VIN_POSITION_WEIGHTS,
+    ExtractionRoute,
     FieldFamily,
     FieldName,
     LineType,
     Oem,
-    QualityTier,
 )
 from crossfoot.models.extraction import ExtractedDocument, ExtractedField, FieldSignals
 
@@ -47,23 +66,31 @@ _GRAMMARS: dict[Oem, dict[FieldName, re.Pattern[str]]] = {
     for oem, grammars in REF_GRAMMARS.items()
 }
 
+# Field names some marque defines a grammar for. A reference outside this set
+# carries no grammar signal at all rather than a failed one.
+_GRAMMAR_FIELDS: frozenset[FieldName] = frozenset(
+    name for grammars in _GRAMMARS.values() for name in grammars
+)
+
 
 @dataclass(frozen=True, slots=True)
 class SignalContext:
-    """What a single extracted document cannot know about itself.
+    """Upstream measurements no single field carries on its own row.
 
-    The three mappings carry upstream measurements keyed by field_id or line_no:
-    sampling agreement, deterministic-versus-LLM agreement, and the line types
-    that give amount signs their meaning. Empty means the signal is unavailable.
+    Both mappings are keyed by field_id and hold something the extractor measured
+    while reading the page: agreement across the k=2 vision samples, and agreement
+    between the deterministic and the LLM reading of the same document. A field
+    the mapping does not name keeps whatever its own row already carries, so
+    rescoring never discards a measurement it cannot recompute.
+
+    Nothing else belongs here, and in particular nothing from the dataset
+    manifest. Every other signal is read off the artifact or the extraction inside
+    `attach_signals`, which is what makes a confidence score something a document
+    with no answer key could earn.
     """
 
-    oem: Oem
-    period_start: date
-    period_end: date
-    quality_tier: QualityTier
     self_consistency: Mapping[str, float] = field(default_factory=dict)
     det_llm_agreement: Mapping[str, float] = field(default_factory=dict)
-    line_types: Mapping[int, LineType] = field(default_factory=dict)
 
 
 def vin_check_digit_ok(vin: str) -> bool:
@@ -96,7 +123,14 @@ def date_within_period(value: date, period_start: date, period_end: date) -> boo
 
 
 def amount_sign_consistent(amount_cents: int, line_type: LineType) -> bool:
-    """Charges are positive and credits negative; other line types are unconstrained."""
+    """Charges are positive and credits negative; other line types are unconstrained.
+
+    No signal calls this any more. Line type is never extracted from a document,
+    so gating a confidence feature on it would score an extraction against a fact
+    only the generator holds. Kept because it is the documented arithmetic and the
+    reconciliation engine still reasons in these terms, and because naming why it
+    is unused is worth more than deleting it quietly.
+    """
     expected = _EXPECTED_SIGNS.get(line_type)
     return expected is None or amount_cents * expected > 0
 
@@ -108,13 +142,85 @@ def char_ambiguity(text: str) -> float:
     return sum(1 for char in text if char in CONFUSABLE_GLYPHS) / len(text)
 
 
-def attach_signals(doc: ExtractedDocument, context: SignalContext) -> ExtractedDocument:
-    """Copy of doc whose every field carries freshly computed signals."""
+def infer_oem(doc: ExtractedDocument) -> Oem | None:
+    """The marque whose grammars this extraction's own references fit best.
+
+    One vote per extracted reference value that fullmatches, counted across every
+    marque; the most voted marque wins outright. A tie, or a document with no
+    matching reference at all, yields None, and the grammar signal then falls back
+    to asking whether any marque would recognize a value.
+
+    A document votes with everything it printed, so a single misread reference is
+    one vote among a page of them and cannot elect its own marque.
+    """
+    votes: dict[Oem, int] = dict.fromkeys(Oem, 0)
+    for extracted in _reference_values(doc):
+        for oem in Oem:
+            if grammar_matches(oem, extracted.name, extracted.value or ""):
+                votes[oem] += 1
+    ranked = sorted(votes.items(), key=lambda item: item[1], reverse=True)
+    if ranked[0][1] == 0:
+        return None  # nothing matched, so there is nothing to elect
+    if ranked[0][1] == ranked[1][1]:
+        return None  # nothing to choose between them, so choose nothing
+    return ranked[0][0]
+
+
+def date_windows(doc: ExtractedDocument) -> dict[str, tuple[date, date]]:
+    """Per field_id, the window that field's date is plausible inside.
+
+    Anchored on the statement date this same extraction produced, which is the
+    only period marker the pipeline reads off a page; the true period is a
+    manifest fact and is not available. No date is ever checked against a window
+    it helped define, so the statement date is judged against the middle of the
+    document's other dates instead. The middle rather than the span is what keeps
+    one wild misread from stretching the window until nothing can fall outside it.
+
+    A field with no other dated field beside it gets no entry at all, and the
+    signal is then absent rather than vacuously true.
+    """
+    dated = [
+        (extracted.field_id, extracted.value_date)
+        for extracted in _all_fields(doc)
+        if extracted.value_date is not None
+    ]
+    anchor_id, anchor = _statement_anchor(doc)
+    windows: dict[str, tuple[date, date]] = {}
+    for field_id, _ in dated:
+        if anchor is not None and field_id != anchor_id:
+            centre = anchor
+        else:
+            others = [value for other_id, value in dated if other_id != field_id]
+            if not others:
+                continue
+            centre = _middle_date(others)
+        windows[field_id] = (centre, centre)
+    return windows
+
+
+def attach_signals(
+    doc: ExtractedDocument, context: SignalContext | None = None
+) -> ExtractedDocument:
+    """Copy of doc whose every field carries freshly computed signals.
+
+    The document is the only evidence: the route it was read by, the dates and
+    references it yielded, and the arithmetic over its own amounts. Nothing is
+    passed in from a manifest, so this is exactly the computation a production
+    document with no answer key would get.
+    """
+    context = context or SignalContext()
     delta = crossfoot_delta_cents(doc)
     suspects = _residual_suspects(doc, delta)
+    oem = infer_oem(doc)
+    windows = date_windows(doc)
     update: dict[str, Any] = {
-        "header_fields": tuple(_rescored(f, context, delta, suspects) for f in doc.header_fields),
-        "line_fields": tuple(_rescored(f, context, delta, suspects) for f in doc.line_fields),
+        "header_fields": tuple(
+            _rescored(f, context, doc.route, oem, windows, delta, suspects)
+            for f in doc.header_fields
+        ),
+        "line_fields": tuple(
+            _rescored(f, context, doc.route, oem, windows, delta, suspects) for f in doc.line_fields
+        ),
     }
     if delta is not None:
         update["crossfoot_delta_cents"] = delta
@@ -131,6 +237,32 @@ def crossfoot_delta_cents(doc: ExtractedDocument) -> int | None:
         return None
     carried = _header_cents(doc, FieldName.PREVIOUS_BALANCE) or 0
     return total - (carried + sum(cents for _, cents in _line_amounts(doc)))
+
+
+def _statement_anchor(doc: ExtractedDocument) -> tuple[str | None, date | None]:
+    """The extracted statement date and the field it came from, or (None, None)."""
+    for extracted in doc.header_fields:
+        if extracted.name is FieldName.STATEMENT_DATE and extracted.value_date is not None:
+            return extracted.field_id, extracted.value_date
+    return None, None
+
+
+def _middle_date(values: Sequence[date]) -> date:
+    """Median date, taking the later of the two middles on an even count."""
+    ordinals = sorted(value.toordinal() for value in values)
+    return date.fromordinal(int(statistics.median_high(ordinals)))
+
+
+def _all_fields(doc: ExtractedDocument) -> tuple[ExtractedField, ...]:
+    return (*doc.header_fields, *doc.line_fields)
+
+
+def _reference_values(doc: ExtractedDocument) -> list[ExtractedField]:
+    return [
+        extracted
+        for extracted in _all_fields(doc)
+        if extracted.name in _GRAMMAR_FIELDS and extracted.value is not None
+    ]
 
 
 def _residual_suspects(doc: ExtractedDocument, delta: int | None) -> frozenset[int]:
@@ -175,21 +307,29 @@ def _header_cents(doc: ExtractedDocument, name: FieldName) -> int | None:
 def _rescored(
     extracted: ExtractedField,
     context: SignalContext,
+    route: ExtractionRoute,
+    oem: Oem | None,
+    windows: Mapping[str, tuple[date, date]],
     delta: int | None,
     suspects: frozenset[int],
 ) -> ExtractedField:
     family = FIELD_FAMILIES[extracted.name]
+    carried = extracted.signals
     signals = FieldSignals(
-        self_consistency=context.self_consistency.get(extracted.field_id),
-        det_llm_agreement=context.det_llm_agreement.get(extracted.field_id),
-        validator_pass=_validator_pass(extracted, family, context),
-        grammar_match=_grammar_signal(extracted, family, context),
+        # An extractor that measured agreement while reading keeps it: rescoring
+        # recomputes what it can see and must not erase what it cannot.
+        self_consistency=context.self_consistency.get(extracted.field_id, carried.self_consistency),
+        det_llm_agreement=context.det_llm_agreement.get(
+            extracted.field_id, carried.det_llm_agreement
+        ),
+        validator_pass=_validator_pass(extracted, family, windows),
+        grammar_match=_grammar_signal(extracted, family, oem),
         crossfoot_ok=_crossfoot_ok(delta) if family is FieldFamily.AMOUNT else None,
         crossfoot_residual_suspect=(
             extracted.name is FieldName.LINE_AMOUNT and extracted.line_no in suspects
         ),
         char_ambiguity=char_ambiguity(extracted.raw_text or ""),
-        quality_tier=context.quality_tier,
+        route=route,
     )
     return extracted.model_copy(update={"signals": signals})
 
@@ -201,37 +341,49 @@ def _crossfoot_ok(delta: int | None) -> float | None:
 
 
 def _validator_pass(
-    extracted: ExtractedField, family: FieldFamily, context: SignalContext
+    extracted: ExtractedField, family: FieldFamily, windows: Mapping[str, tuple[date, date]]
 ) -> float | None:
     """Typed validators only: references other than the VIN carry no arithmetic check."""
     if extracted.name is FieldName.VIN:
         return _signal(extracted.value is not None and vin_check_digit_ok(extracted.value))
     if family is FieldFamily.DATE:
-        return _signal(
-            extracted.value_date is not None
-            and date_within_period(extracted.value_date, context.period_start, context.period_end)
-        )
+        return _date_signal(extracted, windows)
     if family is FieldFamily.AMOUNT:
-        return _signal(extracted.value_cents is not None and _amount_sign_ok(extracted, context))
+        # A parse, and only a parse. The sign check phase 2 described needed the
+        # line type, which no extractor produces; the arithmetic that stands in
+        # for it is crossfoot_ok and the residual suspect beside it.
+        return _signal(extracted.value_cents is not None)
     return None
 
 
-def _amount_sign_ok(extracted: ExtractedField, context: SignalContext) -> bool:
-    line_no, cents = extracted.line_no, extracted.value_cents
-    line_type = context.line_types.get(line_no) if line_no is not None else None
-    if line_type is None or cents is None:
-        return True  # no line type known, so parsing is the whole check
-    return amount_sign_consistent(cents, line_type)
+def _date_signal(
+    extracted: ExtractedField, windows: Mapping[str, tuple[date, date]]
+) -> float | None:
+    """False when the text did not parse, absent when the extraction anchors no window."""
+    if extracted.value_date is None:
+        return SIGNAL_FALSE  # visible from the text alone, so it is always known
+    window = windows.get(extracted.field_id)
+    if window is None:
+        return None
+    return _signal(date_within_period(extracted.value_date, *window))
 
 
 def _grammar_signal(
-    extracted: ExtractedField, family: FieldFamily, context: SignalContext
+    extracted: ExtractedField, family: FieldFamily, oem: Oem | None
 ) -> float | None:
-    if family is not FieldFamily.REFERENCE or extracted.name not in _GRAMMARS[context.oem]:
+    """Match against the marque the document voted for, or against all of them.
+
+    The true marque is a manifest fact. When the extraction elects one, the check
+    is that marque's grammar; when it cannot, the value is asked only whether some
+    marque would recognize it, which is weaker and honest.
+    """
+    if family is not FieldFamily.REFERENCE or extracted.name not in _GRAMMAR_FIELDS:
         return None
     if extracted.value is None:
         return SIGNAL_FALSE
-    return _signal(grammar_matches(context.oem, extracted.name, extracted.value))
+    if oem is not None:
+        return _signal(grammar_matches(oem, extracted.name, extracted.value))
+    return _signal(any(grammar_matches(each, extracted.name, extracted.value) for each in Oem))
 
 
 def _signal(passed: bool) -> float:

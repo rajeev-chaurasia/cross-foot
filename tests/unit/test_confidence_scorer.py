@@ -3,7 +3,7 @@
 import pytest
 
 from crossfoot.confidence.scorer import encode, fit, probability
-from crossfoot.constants import FieldFamily, QualityTier
+from crossfoot.constants import ExtractionRoute, FieldFamily
 from crossfoot.models.extraction import FieldSignals
 
 OPTIONAL_SIGNALS = (
@@ -13,10 +13,12 @@ OPTIONAL_SIGNALS = (
     "grammar_match",
     "crossfoot_ok",
 )
-# Five (indicator, value) pairs, the residual flag, char ambiguity, one slot per tier.
-EXPECTED_FEATURES = 2 * len(OPTIONAL_SIGNALS) + 2 + len(QualityTier)
+# Five (indicator, value) pairs, the residual flag, char ambiguity, one slot per
+# route. The route slots replaced one slot per quality tier: the tier was a
+# generator degradation label, and no real document carries one.
+EXPECTED_FEATURES = 2 * len(OPTIONAL_SIGNALS) + 2 + len(ExtractionRoute)
 
-BASE = FieldSignals(quality_tier=QualityTier.CLEAN_DIGITAL)
+BASE = FieldSignals(route=ExtractionRoute.DIGITAL_PDF)
 
 
 def _with(name: str, value: float | None) -> FieldSignals:
@@ -36,10 +38,17 @@ def test_every_optional_signal_separates_absence_from_a_present_zero(name: str) 
     assert sum(present) - sum(absent) == pytest.approx(1.0)
 
 
-def test_quality_tier_is_one_hot() -> None:
-    for tier in QualityTier:
-        tier_slots = encode(FieldSignals(quality_tier=tier))[-len(QualityTier) :]
-        assert sum(tier_slots) == pytest.approx(1.0)
+def test_route_is_one_hot() -> None:
+    for route in ExtractionRoute:
+        route_slots = encode(FieldSignals(route=route))[-len(ExtractionRoute) :]
+        assert sum(route_slots) == pytest.approx(1.0)
+
+
+def test_an_unrouted_field_lights_no_route_slot() -> None:
+    # Absence is a state the model can learn, exactly like the (indicator, value)
+    # pairs above: all-zero says "no route known", not "this route".
+    route_slots = encode(FieldSignals())[-len(ExtractionRoute) :]
+    assert sum(route_slots) == pytest.approx(0.0)
 
 
 def test_residual_suspect_changes_the_encoding() -> None:

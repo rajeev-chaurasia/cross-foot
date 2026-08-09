@@ -25,7 +25,7 @@ from crossfoot.confidence.calibration import (
     sweep_point,
 )
 from crossfoot.confidence.scorer import LogisticModel
-from crossfoot.confidence.signals import SignalContext, attach_signals
+from crossfoot.confidence.signals import attach_signals
 from crossfoot.constants import (
     ExtractionRoute,
     FieldFamily,
@@ -316,6 +316,11 @@ def _labelled_fields(
 ) -> list[LabelledField]:
     """One split's saved fields paired with truth, ready for a scorer.
 
+    Truth appears here as a label and nowhere else. The signals a scorer will
+    learn from are recomputed from the extraction alone, so a row is a feature
+    vector a production document could have produced plus a bit saying whether it
+    was right.
+
     Only the saved extractions count. Re-extracting here would run the offline
     routes alone, so every scanned document would vanish and the fit would see
     nothing but the tiers the pipeline already gets right, which reads as a
@@ -330,10 +335,15 @@ def _labelled_fields(
     rows: list[LabelledField] = []
     for doc in documents:
         record = records.get(doc.doc_id)
-        context = None if record is None else signal_context(record)
-        if record is None or record.truth is None or context is None:
+        if record is None or record.truth is None:
             continue
-        scored = attach_signals(doc, context)
+        # FEATURES from the extraction, LABELS from truth, and the two lines
+        # below are the whole boundary. `attach_signals` is handed the document
+        # and nothing else, so no manifest fact can reach a feature; `truth` is
+        # read only to decide whether a reading was right. Passing a record into
+        # the signals call is what the audit caught, and it is why the call takes
+        # no context here.
+        scored = attach_signals(doc)
         for field in (*scored.header_fields, *scored.line_fields):
             correct = field_is_correct(field, record.truth)
             if correct is not None:
@@ -402,20 +412,6 @@ def statement_from_extraction(
         subtotal_cents=subtotal,
         total_cents=_header_cents(doc, FieldName.TOTAL) or subtotal,
         lines=lines,
-    )
-
-
-def signal_context(record: ManifestRecord) -> SignalContext | None:
-    """Per-document context the confidence signals cannot infer alone."""
-    truth = record.truth
-    if truth is None:
-        return None
-    return SignalContext(
-        oem=truth.oem,
-        period_start=truth.period_start,
-        period_end=truth.period_end,
-        quality_tier=record.quality_tier,
-        line_types={line.line_no: line.line_type for line in truth.lines},
     )
 
 

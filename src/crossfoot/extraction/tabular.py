@@ -19,7 +19,6 @@ from crossfoot.constants import (
     FieldName,
     FieldSource,
     IngestErrorKind,
-    QualityTier,
     ReviewStatus,
 )
 from crossfoot.extraction.normalize import (
@@ -265,7 +264,7 @@ def _build_field(doc_id: str, line_no: int, name: FieldName, raw: str) -> Extrac
         signals=FieldSignals(
             validator_pass=1.0 if parsed else 0.0,
             grammar_match=grammar,
-            quality_tier=QualityTier.CSV,
+            route=ExtractionRoute.CSV,
         ),
         confidence=1.0 if parsed else 0.0,
         status=ReviewStatus.AUTO_ACCEPTED if parsed else ReviewStatus.NEEDS_REVIEW,

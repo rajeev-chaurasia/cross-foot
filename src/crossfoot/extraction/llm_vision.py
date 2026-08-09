@@ -31,7 +31,6 @@ from crossfoot.constants import (
     FieldName,
     FieldSource,
     IngestErrorKind,
-    QualityTier,
 )
 from crossfoot.costs import CallContext, Purpose
 from crossfoot.extraction.failures import PROVIDER_FAILURE_DETAIL
@@ -273,7 +272,6 @@ class VisionExtractor:
         doc_id: str,
         file_path: str,
         doc_type: DocType,
-        quality_tier: QualityTier,
         images: Sequence[PageImage],
         route: ExtractionRoute = ExtractionRoute.SCANNED_PDF,
     ) -> ExtractedDocument:
@@ -314,7 +312,6 @@ class VisionExtractor:
             doc_id=doc_id,
             file_path=file_path,
             doc_type=doc_type,
-            quality_tier=quality_tier,
             route=route,
             authoritative=authoritative,
             agreement=_agreement(authoritative, consistency),
@@ -448,13 +445,12 @@ def _to_document(
     doc_id: str,
     file_path: str,
     doc_type: DocType,
-    quality_tier: QualityTier,
     route: ExtractionRoute,
     authoritative: VisionDocument,
     agreement: Mapping[FieldKey, float] | None,
 ) -> ExtractedDocument:
     header_fields = [
-        _build_field(doc_id, name, value, None, None, quality_tier, agreement)
+        _build_field(doc_id, name, value, None, None, route, agreement)
         for name in HEADER_FIELDS
         if (value := _value_of(authoritative, name)) is not None
     ]
@@ -462,7 +458,7 @@ def _to_document(
     for line in authoritative.lines:
         bbox = _bbox(line)
         line_fields.extend(
-            _build_field(doc_id, name, value, line.row_position, bbox, quality_tier, agreement)
+            _build_field(doc_id, name, value, line.row_position, bbox, route, agreement)
             for name in line_field_names(doc_type)
             if (value := _value_of(line, name)) is not None
         )
@@ -496,7 +492,7 @@ def _build_field(
     value: VisionValue,
     line_no: int | None,
     bbox: BBox | None,
-    quality_tier: QualityTier,
+    route: ExtractionRoute,
     agreement: Mapping[FieldKey, float] | None,
 ) -> ExtractedField:
     family = FIELD_FAMILIES[name]
@@ -521,7 +517,7 @@ def _build_field(
         bbox=bbox,
         signals=FieldSignals(
             self_consistency=None if agreement is None else agreement.get((line_no, name)),
-            quality_tier=quality_tier,
+            route=route,
         ),
     )
 

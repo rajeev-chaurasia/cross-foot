@@ -46,6 +46,7 @@ from crossfoot.api.routes import crops as crops_route
 from crossfoot.constants import (
     CorruptionKind,
     CropKind,
+    ExtractionRoute,
     FieldFamily,
     FieldName,
     FieldSource,
@@ -238,7 +239,7 @@ def _seed_vision(connection: sqlite3.Connection, signals: str) -> None:
 
 def _seed(connection: sqlite3.Connection) -> None:
     """Two documents: one readable, one corrupted, with a field of each crop kind."""
-    signals = FieldSignals(quality_tier=QualityTier.CLEAN_DIGITAL).model_dump_json()
+    signals = FieldSignals(route=ExtractionRoute.DIGITAL_PDF).model_dump_json()
     for doc_id in (DOC, BROKEN_DOC):
         connection.execute(
             _INSERT_DOCUMENT,

@@ -15,6 +15,16 @@ to choosing one.
 A field this pass cannot score keeps confidence 0.0 and NEEDS_REVIEW. Silence is
 never an auto accept; docs/contracts-phase3.md states that as a rule rather than
 leaving it to a default.
+
+FEATURES COME FROM THE ARTIFACT, LABELS ARE HANDED IN. This module deliberately
+cannot see the dataset manifest: it computes every feature by calling
+`attach_signals` on the extraction, and it receives the correct/incorrect
+judgement as a sequence of `FieldLabel`, which the caller derives from truth.
+An earlier version imported `ManifestRecord` and built the signals from it, which
+put the generator's quality tier, the true statement period, the true marque and
+the true line types into the feature vector of the review database the API and
+the UI read. The split is structural now, and `tests/unit/test_truth_boundary.py`
+fails the build if this module ever imports the manifest again.
 """
 
 from __future__ import annotations
@@ -33,10 +43,7 @@ from crossfoot.confidence.calibration import (
 from crossfoot.confidence.scorer import LogisticModel
 from crossfoot.confidence.signals import attach_signals
 from crossfoot.constants import FieldFamily, ReviewStatus, SplitName
-from crossfoot.evals.metrics import field_is_correct
-from crossfoot.evals.runner import signal_context
 from crossfoot.models.extraction import ExtractedDocument, ExtractedField, FieldSignals
-from crossfoot.models.manifest import ManifestRecord
 from crossfoot.models.scorecard import ThresholdPoint
 
 # What an unscored field publishes. Never an auto accept: a missing score is a
@@ -63,8 +70,24 @@ class ConfidencePass:
 
 
 @dataclass(frozen=True, slots=True)
+class FieldLabel:
+    """One field judged right or wrong, and the split its document belongs to.
+
+    THE ONLY DOOR TRUTH COMES THROUGH. A label says whether a reading matched the
+    answer key; it carries no description of the document, so nothing about it can
+    become a feature. The caller builds these (`crossfoot.ingest_db` from the
+    dataset manifest, an eval harness from wherever it holds truth) and this
+    module never asks where they came from.
+    """
+
+    field_id: str
+    correct: bool
+    split: SplitName
+
+
+@dataclass(frozen=True, slots=True)
 class _Labelled:
-    """One extracted field paired with truth, carrying the split it was read from."""
+    """One scored feature row joined to its label, tagged with its split."""
 
     field_family: FieldFamily
     signals: FieldSignals
@@ -74,7 +97,7 @@ class _Labelled:
 
 def apply_confidence(
     documents: Sequence[ExtractedDocument],
-    records: Mapping[str, ManifestRecord],
+    labels: Sequence[FieldLabel],
     *,
     fit_split: SplitName = FIT_SPLIT,
     threshold_split: SplitName = THRESHOLD_SPLIT,
@@ -84,45 +107,28 @@ def apply_confidence(
     The two split arguments are here to be guarded, not to be chosen. Calibration
     sanctions TRAIN for fitting and CALIBRATION for thresholds and nothing else,
     so any other value raises SplitDisciplineError rather than fitting on it.
+
+    Signals are recomputed rather than trusted: the scorers are fit on signals
+    assembled by `attach_signals`, so scoring a field on anything else would feed
+    the model a different feature row than it learned from.
     """
-    prepared = {doc.doc_id: _prepared(doc, records.get(doc.doc_id)) for doc in documents}
-    models = _fit(prepared, records, fit_split)
-    thresholds = _thresholds(prepared, records, models, threshold_split)
+    prepared = [attach_signals(doc) for doc in documents]
+    by_field = {
+        field.field_id: field
+        for doc in prepared
+        for field in (*doc.header_fields, *doc.line_fields)
+    }
+    rows = _labelled(by_field, labels)
+    models = _fit(rows, fit_split)
+    thresholds = _thresholds(rows, models, threshold_split)
     by_family = {point.field_family: point.threshold for point in thresholds}
-
-    scored: list[ExtractedDocument] = []
-    for doc in documents:
-        ready = prepared[doc.doc_id]
-        if ready is None:
-            # No context means no signals worth scoring, so the whole document
-            # queues rather than passing through a model fed stale features.
-            scored.append(_scored(doc, {}, {}))
-        else:
-            scored.append(_scored(ready, models, by_family))
-    return ConfidencePass(documents=tuple(scored), thresholds=thresholds)
+    return ConfidencePass(
+        documents=tuple(_scored(doc, models, by_family) for doc in prepared),
+        thresholds=thresholds,
+    )
 
 
-def _prepared(doc: ExtractedDocument, record: ManifestRecord | None) -> ExtractedDocument | None:
-    """The document with its signals recomputed, or None when their context is missing.
-
-    Recomputed rather than trusted: the scorers were fit on signals assembled this
-    way, so scoring a field on anything else would feed the model a different
-    feature row than it learned from.
-    """
-    if record is None:
-        return None
-    context = signal_context(record)
-    if context is None:
-        return None
-    return attach_signals(doc, context)
-
-
-def _fit(
-    prepared: Mapping[str, ExtractedDocument | None],
-    records: Mapping[str, ManifestRecord],
-    split: SplitName,
-) -> FamilyModels:
-    rows = _labelled(prepared, records, split)
+def _fit(rows: Sequence[_Labelled], split: SplitName) -> FamilyModels:
     samples = [
         TrainingSample(
             field_family=row.field_family,
@@ -131,15 +137,13 @@ def _fit(
             split=row.split,
         )
         for row in rows
+        if row.split is split
     ]
     return fit_scorers(samples, split=split)
 
 
 def _thresholds(
-    prepared: Mapping[str, ExtractedDocument | None],
-    records: Mapping[str, ManifestRecord],
-    models: FamilyModels,
-    split: SplitName,
+    rows: Sequence[_Labelled], models: FamilyModels, split: SplitName
 ) -> tuple[ThresholdPoint, ...]:
     samples = [
         ConfidenceSample(
@@ -148,28 +152,22 @@ def _thresholds(
             correct=row.correct,
             split=row.split,
         )
-        for row in _labelled(prepared, records, split)
-        if row.field_family in models
+        for row in rows
+        if row.split is split and row.field_family in models
     ]
     return choose_thresholds(samples, split=split)
 
 
 def _labelled(
-    prepared: Mapping[str, ExtractedDocument | None],
-    records: Mapping[str, ManifestRecord],
-    split: SplitName,
+    by_field: Mapping[str, ExtractedField], labels: Sequence[FieldLabel]
 ) -> list[_Labelled]:
-    """Fields of one split paired with truth, tagged so the split guard can check them."""
+    """Join each label to the scored field it names, dropping labels with no field."""
     rows: list[_Labelled] = []
-    for doc_id, doc in prepared.items():
-        record = records.get(doc_id)
-        if doc is None or record is None or record.split is not split or record.truth is None:
+    for label in labels:
+        field = by_field.get(label.field_id)
+        if field is None:
             continue
-        for field in (*doc.header_fields, *doc.line_fields):
-            correct = field_is_correct(field, record.truth)
-            if correct is None:
-                continue  # truth holds no value there, so there is nothing to learn
-            rows.append(_Labelled(field.family, field.signals, correct, record.split))
+        rows.append(_Labelled(field.family, field.signals, label.correct, label.split))
     return rows
 
 

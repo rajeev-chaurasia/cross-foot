@@ -16,22 +16,31 @@ these are the numbers the held out test split produced at those thresholds:
 | Held out test split | Value |
 | --- | --- |
 | Fields scored | 1561 |
-| Auto accept precision | 98.02 percent |
-| Review rate | 16.02 percent |
+| Auto accept precision | 97.08 percent |
+| Review rate | 31.90 percent |
 | Injected discrepancies caught, matching engine fed truth | 71 of 71, zero false detections |
 | Injected discrepancies caught, matching engine fed extractions | 46 of 71, 136 false detections |
 
-A reviewer looks at about one field in six. What they skip is 98 percent correct. The last
-two rows are the same matcher over the same discrepancies, once on ground truth lines and
-once on what the pipeline actually read, so the distance between them is extraction error
-and nothing else.
+A reviewer looks at about one field in three. What they skip is 97 percent correct. The
+last two rows are the same matcher over the same discrepancies, once on ground truth lines
+and once on what the pipeline actually read, so the distance between them is extraction
+error and nothing else.
 
-![Auto accept precision against review rate, per family](scorecards/20260809T184447-73713a7/threshold-sweep.png)
+An earlier version of this page published 98.02 percent at 16.02 percent review. That
+number was partly bought with information no real document carries. Four confidence
+features were read out of the dataset manifest rather than out of the artifact: the
+generator's degradation tier, the true statement period, the true marque, and the true per
+line type. Every one of them is now derived from the file and the extraction, or dropped.
+The review rate roughly doubled and precision fell about a point. Those are the numbers the
+method actually earns, and what each signal cost is below under "What the honest signals
+cost".
+
+![Auto accept precision against review rate, per family](scorecards/20260809T232148-b0da661/threshold-sweep.png)
 
 Filled marker: the operating point chosen on the calibration split. Open marker: what the
 held out test split reached at that same threshold. The arrow between them is the
 generalization gap, drawn rather than described. Figure and numbers both come from
-`scorecards/20260809T184447-73713a7/`.
+`scorecards/20260809T232148-b0da661/`.
 
 ## The problem
 
@@ -64,10 +73,13 @@ gen -> extract -> confidence -> reconcile -> review
    under a JSON schema, sampled twice per document (temperature 0, then temperature 0.4
    with the prompt field order shuffled) so per field agreement becomes a signal.
 3. **Score confidence.** Each field gets a `FieldSignals` record: self consistency across
-   the two samples, VIN check digit and date window validators, reference grammar match,
-   whether the document's line amounts crossfoot to its printed total, a confusable
-   glyph ratio over `{O0, I1l, S5, B8, Z2}`, and the quality tier. A logistic regression
-   per field family, hand rolled in numpy, turns those into a probability.
+   the two samples, a VIN check digit validator, a date window read off the other dates the
+   same extraction produced, a grammar match against the marque the document's own
+   reference numbers vote for, whether the document's line amounts crossfoot to its printed
+   total, a confusable glyph ratio over `{O0, I1l, S5, B8, Z2}`, and the route the router
+   chose from the file's bytes. A logistic regression per field family, hand rolled in
+   numpy, turns those into a probability. Every one of those is computable from the
+   artifact alone; truth enters a fit only as the label on a row.
 4. **Reconcile.** Three passes against the ledger: exact reference plus amount, exact
    reference with a differing amount, then a fuzzy pass scored on reference similarity,
    amount proximity, and date proximity. Unmatched lines and unconsumed ledger entries
@@ -80,7 +92,7 @@ gen -> extract -> confidence -> reconcile -> review
 ## Results
 
 All figures below are the held out test split, from
-`scorecards/20260809T184447-73713a7/scorecard.json` unless named otherwise.
+`scorecards/20260809T232148-b0da661/scorecard.json` unless named otherwise.
 
 ### Per field accuracy by tier
 
@@ -93,11 +105,12 @@ Canonical accuracy, correct over the fields the artifact actually printed:
 | reference | 93.2 (287/308) | 53.5 (100/187) | **9.2 (13/142)** | 100.0 (90/90) | not extracted (0/62) |
 | text | 93.2 (151/162) | 58.7 (61/104) | 59.4 (38/64) | 100.0 (53/53) | not extracted (0/33) |
 
-![Per field accuracy by quality tier](scorecards/20260809T184447-73713a7/field-accuracy-heatmap.png)
+![Per field accuracy by quality tier](scorecards/20260809T232148-b0da661/field-accuracy-heatmap.png)
 
-There is no XLSX extractor yet. Those 169 printed fields are drawn hatched and labelled
-absent rather than zero, because "no extractor for this format" is a different fact from
-"read it and got it wrong". They still count against the totals.
+The saved extractions this scorecard reads predate the XLSX extractor, so nothing read
+those 169 printed fields. They are drawn hatched and labelled absent rather than zero,
+because "no extractor ran on this format" is a different fact from "read it and got it
+wrong". They still count against the totals.
 
 Most of the scanned tier loss is fields the model never returned at all, not fields it
 returned wrong. Splitting the two:
@@ -126,26 +139,59 @@ split reached at that same threshold. Both points are in the committed sweep.
 
 | Family | Threshold | Calibration precision | Calibration review rate | Test precision | Test review rate |
 | --- | --- | --- | --- | --- | --- |
-| amount | 0.7834 | 99.64 | 18.10 | 98.53 | 13.49 |
-| date | 0.9345 | 99.60 | 0.00 | 98.66 | 0.00 |
-| reference | 0.8325 | 100.00 | 19.55 | 97.38 | 31.96 |
-| text | 0.8819 | 98.43 | 8.96 | 97.60 | 5.81 |
+| amount | 0.6865 | 99.69 | 5.04 | 95.97 | 5.34 |
+| date | 0.8834 | 99.60 | 0.00 | 98.66 | 0.00 |
+| reference | 0.9299 | 100.00 | 77.57 | 95.05 | 81.96 |
+| text | 0.7655 | 98.47 | 6.45 | 97.60 | 5.81 |
 
 Every family lost precision on held out data, which is what a promise chosen on one split
-does when it meets another. Reference lost the most and paid for it in review rate too:
-promised 19.55 percent to review, delivered 31.96 percent. Reference is also the family
-carrying the heavy scan VINs, so this is the same fact twice.
+does when it meets another. Reference now reviews four fields in five and still only
+reaches 95.05 percent on what it accepts. It is the family carrying the heavy scan VINs,
+where 68 of 142 references come back and 13 of those are right, so a model that cannot
+separate them has little left to do but send nearly all of them to a human.
+
+Amount is the family that over promises hardest: 99.69 percent on calibration against
+95.97 percent on test, at a review rate near 5 percent either way. What it lost was a sign
+check against the line type, and no extractor produces a line type, so for a single amount
+what remains is whether the text parsed. The arithmetic standing in for it is the document
+level crossfoot and the residual suspect flag beside it.
 
 Date auto accepts everything at both points. Its threshold sits below the confidence of
 every date field, which is the model saying it has no date it distrusts. On a test split
 where only 31.4 percent of scan light dates are read correctly, that is worth reading as a
 weakness of the date signals rather than a strength.
 
-![Reliability of the confidence score](scorecards/20260809T184447-73713a7/reliability-diagram.png)
+### What the honest signals cost
+
+`SignalContext` used to be handed a `ManifestRecord`. Four of the values it took from there
+have no inference time equivalent, and `src/crossfoot/scoring.py`, which materializes the
+review database the API and the UI read, took the same route. What replaced each:
+
+| Signal | Was | Is |
+| --- | --- | --- |
+| categorical base rate | the generator's `quality_tier`, one hot encoded | `ExtractionRoute`, read off the file's bytes by the router |
+| date window | the true `period_start` and `period_end` | the statement date this extraction produced, or the middle of the document's other dates, and never a date's own |
+| amount validator | parsed, and the sign agreed with the true line type | parsed |
+| reference grammar | the true `oem`'s grammar | the marque this document's own reference numbers vote for, falling back to whether any marque recognizes the value |
+
+Measured by refitting on train, rechoosing thresholds on calibration and rescoring test
+each time, the tier label alone was worth about 16 percentage points of review rate:
+merging `scan_light` and `scan_heavy` into one scanned value cost 4 points, and removing
+tier information entirely cost 37. The route lands between them, because a document does
+announce whether it carries a text layer and does not announce how badly it was
+photocopied.
+
+`tests/unit/test_truth_boundary.py` walks the AST of every module under `src/crossfoot`
+except the generator, the eval harness and the manifest model itself, and fails the build
+if any of them imports the manifest or mentions `manifest.json`. It also pins the field
+lists of `FieldSignals` and `SignalContext`, because an import guard alone would not catch
+the leak coming back as a new field.
+
+![Reliability of the confidence score](scorecards/20260809T232148-b0da661/reliability-diagram.png)
 
 Expected calibration error on test, computed from the committed calibration bins with
-`expected_calibration_error` in `src/crossfoot/confidence/calibration.py`: amount 0.035,
-date 0.048, reference 0.122, text 0.073. The contract sets a ceiling of 0.05 and calls for
+`expected_calibration_error` in `src/crossfoot/confidence/calibration.py`: amount 0.042,
+date 0.044, reference 0.094, text 0.068. The contract sets a ceiling of 0.05 and calls for
 Platt scaling fit on the calibration split above it. Reference and text are over the
 ceiling and the remedy has not been applied yet. See Limitations.
 
@@ -222,15 +268,21 @@ Misuse raises `SplitDisciplineError` rather than quietly inflating a scorecard.
 `sweep_point`, which measures a threshold already chosen, is deliberately not guarded and
 carries a docstring saying why.
 
-**Extraction cannot see the answers.** A contract test walks the AST of every module in
-`crossfoot.extraction`, `crossfoot.confidence`, and `crossfoot.reconcile` and fails if any
-of them imports the generator or the manifest models, or opens `manifest.json`.
+**Nothing that scores a document can see the answers.** One test walks the AST of every
+module under `src/crossfoot` and fails if any of them imports the generator or the manifest
+models, or mentions `manifest.json`. Five modules are exempt and each is named with its
+reason: the generator writes the answer key, the eval harness scores against it, the
+manifest model is it, and `ingest_db.py` and `cli.py` are the dataset commands. An earlier
+version named three packages instead, which left `scoring.py` outside the net and let the
+manifest reach the review database; that is the leak this build closed.
 
 **Scorecards are committed with their git sha.** Each carries `run_id`, `git_sha`,
 `dataset_config_hash`, `master_seed`, and the split it reports. The dataset hash on all
-three test split scorecards here is `e14a532c`, the seed is 42, and the commit is
-`73713a7`, so anyone can regenerate the corpus and confirm they are reading numbers about
-the same 220 files.
+three test split scorecards here is `e14a532c` and the seed is 42, so anyone can
+regenerate the corpus and confirm they are reading numbers about the same 220 files. The
+field scorecard was rerun at commit `b0da661` after the confidence signals were rebuilt;
+the two reconciliation scorecards are unchanged from `73713a7`, because reconciliation
+never read the signals that moved.
 
 **Figures live next to the scorecard that produced them.** `crossfoot plots` writes each
 PNG into the scorecard's own directory and stamps the run id, split, dataset hash, and git
@@ -338,13 +390,13 @@ real chart of accounts data is messier than a synthesized ledger, and the discre
 here is one a script chose. Treat the numbers as a measurement of the method, not a
 forecast of production accuracy.
 
-**No XLSX extractor in the published run.** The router recognizes the format, but nothing
-read it, so 169 printed fields on the test split score zero in
-`scorecards/20260809T184447-73713a7/scorecard.json`. Four of the 53 test documents are
-XLSX, which is most of why that run served 47 of them. The tables above will only change
-when a new scorecard is committed to change them.
+**No XLSX extractor in the published run.** The extractor exists, but the saved
+extractions this scorecard was computed from predate it, so 169 printed fields on the test
+split score zero in `scorecards/20260809T232148-b0da661/scorecard.json`. Four of the 53
+test documents are XLSX, which is most of why that run served 47 of them. The tables above
+will only change when a new scorecard is committed to change them.
 
-**Two families are miscalibrated on test.** Reference at 0.122 and text at 0.073 expected
+**Two families are miscalibrated on test.** Reference at 0.094 and text at 0.068 expected
 calibration error both exceed the 0.05 ceiling the contract sets. Platt scaling fit on the
 calibration split is specified as the remedy and has not been applied, so the confidence
 numbers those two families report are, at the moment, more confident than they have
@@ -355,9 +407,15 @@ reviewer working that queue by dollar rank would still find real money first, bu
 queue is mostly noise, and the noise is a downstream symptom of missed extractions rather
 than a matching bug.
 
-**The operating point does not transfer evenly.** Reference promised 19.55 percent review
-and delivered 31.96 percent on held out data. Thresholds chosen on 52 calibration
-documents are a small sample doing a load bearing job.
+**The operating point does not transfer evenly.** Amount promised 99.69 percent precision
+on calibration and delivered 95.97 percent on held out data at the same review rate.
+Reference promised 77.57 percent review and delivered 81.96 percent. Thresholds chosen on
+52 calibration documents are a small sample doing a load bearing job.
+
+**The reference operating point is barely an operating point.** Sending four fields in
+five to a human is not automation, and the family still misses one accepted field in
+twenty. What would fix it is a per character transcription confidence from the vision
+model, which the current response schema does not ask for.
 
 **Cost is not in a committed scorecard,** the price table entries are marked unverified,
 and the local model's price is an equivalence rather than a measurement.

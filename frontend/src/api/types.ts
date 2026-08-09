@@ -137,7 +137,8 @@ export interface FieldSignals {
   crossfoot_ok: number | null
   crossfoot_residual_suspect: boolean
   char_ambiguity: number
-  quality_tier: QualityTier
+  /** The extractor the router picked from the file's bytes. Null when unrouted. */
+  route: ExtractionRoute | null
 }
 
 export interface ReviewItem {

@@ -92,7 +92,7 @@ def seed(conn: sqlite3.Connection) -> None:
         value_cents=123_456,
         confidence=0.20,
         status=ReviewStatus.NEEDS_REVIEW,
-        signals=signals_json(QualityTier.CLEAN_DIGITAL, validator_pass=1.0),
+        signals=signals_json(ExtractionRoute.DIGITAL_PDF, validator_pass=1.0),
     )
 
 

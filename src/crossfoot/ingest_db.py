@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +31,7 @@ from crossfoot.confidence.calibration import FIT_SPLIT, THRESHOLD_SPLIT
 from crossfoot.constants import ExtractionRoute, IngestErrorKind, ReconMode, ReviewStatus, SplitName
 from crossfoot.db import connect, thresholds
 from crossfoot.db.schema import ensure_schema
+from crossfoot.evals.metrics import field_is_correct
 from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
 from crossfoot.evals.runner import (
     load_ledger,
@@ -45,7 +46,7 @@ from crossfoot.models.manifest import ManifestRecord
 from crossfoot.models.reconciliation import ExceptionRecord
 from crossfoot.models.scorecard import ThresholdPoint
 from crossfoot.reconcile.engine import reconcile
-from crossfoot.scoring import apply_confidence
+from crossfoot.scoring import FieldLabel, apply_confidence
 
 EXTRACTION_RUN_PREFIX = "extract"
 INGEST_RUN_PREFIX = "ingest"
@@ -136,10 +137,14 @@ def build_database(
     run_id = f"{INGEST_RUN_PREFIX}-{manifest.config_hash[:RUN_ID_HASH_CHARS]}"
     records = [record for split in SplitName for record in split_records(manifest, split)]
     extracted = _load_extractions(extractions_dir, manifest.config_hash)
-    by_doc_id = {record.doc_id: record for record in records}
     # Confidence and status are decided before a row is written, so the fields
     # table never holds a score the operating point below did not produce.
-    scored = apply_confidence(list(extracted.values()), by_doc_id)
+    #
+    # The manifest crosses into scoring as LABELS ONLY. `apply_confidence` reads
+    # its features off the extractions it is handed and cannot see this module's
+    # records at all, so nothing the generator knows about a document reaches the
+    # feature vector behind a review queue position.
+    scored = apply_confidence(list(extracted.values()), _labels(records, extracted))
     documents = {document.doc_id: document for document in scored.documents}
 
     connection = connect(db_path)
@@ -187,6 +192,29 @@ def _restore_human(
 ) -> None:
     for decision in decisions:
         connection.execute(_RESTORE_HUMAN, decision)
+
+
+def _labels(
+    records: Sequence[ManifestRecord], extracted: Mapping[str, ExtractedDocument]
+) -> list[FieldLabel]:
+    """Every extracted field the manifest can judge, as a label and nothing more.
+
+    This is the one place truth touches the confidence pass, and it hands over a
+    field id, a bit, and a split. A document's tier, marque, period and line types
+    stay here; they are the answer key, not evidence a reader of the document
+    could have gathered.
+    """
+    labels: list[FieldLabel] = []
+    for record in records:
+        document = extracted.get(record.doc_id)
+        if document is None or record.truth is None or record.split is None:
+            continue
+        for field in (*document.header_fields, *document.line_fields):
+            correct = field_is_correct(field, record.truth)
+            if correct is None:
+                continue  # truth holds no value there, so there is nothing to learn
+            labels.append(FieldLabel(field.field_id, correct, record.split))
+    return labels
 
 
 def _load_extractions(extractions_dir: Path, config_hash: str) -> dict[str, ExtractedDocument]:

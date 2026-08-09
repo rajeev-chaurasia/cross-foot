@@ -462,7 +462,7 @@
           "type": "string"
         },
         "FieldSignals": {
-          "description": "Raw evidence feeding the confidence model. None means signal unavailable.",
+          "description": "Raw evidence feeding the confidence model. None means signal unavailable.\n\nEvery member is computed from the artifact and the extraction alone. Nothing\nhere may come from the dataset manifest: a confidence score is a claim about\nwhat the pipeline can tell without an answer key, so a feature only the\ngenerator could supply inflates that claim by exactly what the generator knew.",
           "properties": {
             "char_ambiguity": {
               "default": 0.0,
@@ -507,8 +507,15 @@
               ],
               "title": "Grammar Match"
             },
-            "quality_tier": {
-              "$ref": "#/components/schemas/QualityTier"
+            "route": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ExtractionRoute"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "self_consistency": {
               "anyOf": [
@@ -533,9 +540,6 @@
               "title": "Validator Pass"
             }
           },
-          "required": [
-            "quality_tier"
-          ],
           "title": "FieldSignals",
           "type": "object"
         },
