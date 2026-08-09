@@ -136,6 +136,12 @@ MODEL_LIST_PRICES_MICROUSD_PER_MTOK: dict[str, tuple[int, int]] = {
     "llama-3.3-70b-versatile": (590_000, 790_000),  # unverified
     "nemotron-nano-12b-v2-vl": (100_000, 400_000),  # unverified
     "mistral-small": (200_000, 600_000),  # unverified
+    # Self hosted models are billed in electricity, not tokens, so these are an
+    # explicit EQUIVALENCE: what the same tokens would list for at a comparable
+    # hosted vision model. Reporting zero would make a local run look free rather
+    # than cheap, and cost per document is a published number.
+    "qwen2.5vl": (100_000, 400_000),  # equivalence, priced as nemotron-nano-12b-v2-vl
+    "qwen3-vl": (100_000, 400_000),  # equivalence, priced as nemotron-nano-12b-v2-vl
 }
 
 # ---------------------------------------------------------------------------
