@@ -109,6 +109,29 @@ def list_price_microusd(
     return (microusd + TOKENS_PER_PRICE_UNIT // 2) // TOKENS_PER_PRICE_UNIT
 
 
+def effective_list_price_microusd(
+    model: str,
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    stored_microusd: int,
+    prices: Sequence[ModelPrice] = DEFAULT_PRICES,
+) -> int:
+    """What a stored row is worth once the price table has moved on.
+
+    The stored column is the record of what was believed when the call was made,
+    and it stands whenever it says anything at all. A stored zero says only that
+    no pattern matched the model back then, which is a gap in the table rather
+    than a free call, so it is repriced from the table as it reads now. That is
+    what stops a model priced after its run from publishing zero forever.
+    """
+    if stored_microusd:
+        return stored_microusd
+    return list_price_microusd(
+        model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, prices=prices
+    )
+
+
 def _price_for(model: str, prices: Sequence[ModelPrice]) -> ModelPrice | None:
     lowered = model.casefold()
     matches = [price for price in prices if price.pattern.casefold() in lowered]

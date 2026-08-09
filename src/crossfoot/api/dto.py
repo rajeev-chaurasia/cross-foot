@@ -209,9 +209,17 @@ class MetricsPayload(BaseModel):
     threshold_sweep: tuple[ThresholdPoint, ...]
 
     @classmethod
-    def of(cls, scorecard: Scorecard) -> MetricsPayload:
+    def of(
+        cls, scorecard: Scorecard, *, applied: tuple[ThresholdPoint, ...] = ()
+    ) -> MetricsPayload:
+        """The operating point actually applied wins over whatever sweep a scorecard recorded.
+
+        A scorecard says what one run found possible; the applied points say what
+        the fields on screen were cut at. When a build has applied none, the
+        scorecard's own sweep is still the honest answer.
+        """
         return cls(
             scorecard=scorecard,
             calibration=scorecard.calibration,
-            threshold_sweep=scorecard.threshold_sweep,
+            threshold_sweep=applied or scorecard.threshold_sweep,
         )

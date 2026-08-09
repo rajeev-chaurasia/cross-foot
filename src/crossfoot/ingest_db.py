@@ -1,14 +1,21 @@
 """Materialize the review database from a dataset, its extractions, and the ledger.
 
 Four sources, one file. The manifest says which documents exist and how they
-split; the saved extractions say what was read out of them and how much each
-reading is trusted; the reconciliation engine says which of those readings
-disagree with the ledger and by how much; the phase 2 cost ledger says what the
-work cost. The API then reads only this file, so a number on screen is a row.
+split; the saved extractions say what was read out of them; the reconciliation
+engine says which of those readings disagree with the ledger and by how much; the
+phase 2 cost ledger says what the work cost. The API then reads only this file,
+so a number on screen is a row.
+
+How much a reading is trusted is decided here rather than carried in from
+extraction. `crossfoot.scoring` fits the family scorers on TRAIN, chooses the
+thresholds on CALIBRATION, and applies that operating point to every split, so
+the queue holds the fields the model is unsure of rather than the fields no
+deterministic validator happened to cover. The step lives inside the build so
+`crossfoot serve` stays one command.
 
 Building over an existing database replaces the extraction and exception rows.
-The corrections history is never touched, and the field status it implies is
-reapplied afterwards, so a rebuild cannot quietly discard human work.
+Human decisions outrank any score: a field a reviewer accepted or corrected keeps
+its status and its confidence, and the corrections history is never touched.
 """
 
 from __future__ import annotations
@@ -20,8 +27,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from crossfoot.confidence.calibration import FIT_SPLIT, THRESHOLD_SPLIT
 from crossfoot.constants import ExtractionRoute, IngestErrorKind, ReconMode, ReviewStatus, SplitName
-from crossfoot.db import connect
+from crossfoot.db import connect, thresholds
 from crossfoot.db.schema import ensure_schema
 from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
 from crossfoot.evals.runner import (
@@ -35,7 +43,9 @@ from crossfoot.models.extraction import ExtractedDocument, ExtractedField
 from crossfoot.models.ledger import LedgerBook
 from crossfoot.models.manifest import ManifestRecord
 from crossfoot.models.reconciliation import ExceptionRecord
+from crossfoot.models.scorecard import ThresholdPoint
 from crossfoot.reconcile.engine import reconcile
+from crossfoot.scoring import apply_confidence
 
 EXTRACTION_RUN_PREFIX = "extract"
 INGEST_RUN_PREFIX = "ingest"
@@ -70,6 +80,16 @@ UPDATE fields SET status = ?
 WHERE field_id IN (SELECT field_id FROM corrections)
 """
 
+# A human decision outranks any score, so it is read before the rebuild and put
+# back after it, confidence included: a decided field is not re-scored.
+# HUMAN_ACCEPTED lives only in this column, so an INSERT OR REPLACE that did not
+# carry it forward would lose the decision outright.
+_HUMAN_STATUSES = (ReviewStatus.HUMAN_ACCEPTED, ReviewStatus.HUMAN_CORRECTED)
+_SELECT_HUMAN = "SELECT field_id, status, confidence FROM fields WHERE status IN (?, ?)"
+_RESTORE_HUMAN = "UPDATE fields SET status = ?, confidence = ? WHERE field_id = ?"
+
+_COUNT_AUTO_ACCEPTED = "SELECT COUNT(*) FROM fields WHERE status = ?"
+
 _COST_SCHEMA = "costs"
 _ATTACH_COSTS = f"ATTACH DATABASE ? AS {_COST_SCHEMA}"
 _DETACH_COSTS = f"DETACH DATABASE {_COST_SCHEMA}"
@@ -85,6 +105,10 @@ class IngestCounts:
     fields: int
     exceptions: int
     llm_calls: int
+    auto_accepted: int = 0
+    # The operating point the fields above were cut at, in the same order the
+    # sweep chose it, so the build can print what it applied.
+    thresholds: tuple[ThresholdPoint, ...] = ()
 
 
 def extraction_run_id(split: SplitName, config_hash: str) -> str:
@@ -112,20 +136,57 @@ def build_database(
     run_id = f"{INGEST_RUN_PREFIX}-{manifest.config_hash[:RUN_ID_HASH_CHARS]}"
     records = [record for split in SplitName for record in split_records(manifest, split)]
     extracted = _load_extractions(extractions_dir, manifest.config_hash)
+    by_doc_id = {record.doc_id: record for record in records}
+    # Confidence and status are decided before a row is written, so the fields
+    # table never holds a score the operating point below did not produce.
+    scored = apply_confidence(list(extracted.values()), by_doc_id)
+    documents = {document.doc_id: document for document in scored.documents}
 
     connection = connect(db_path)
     try:
         with connection:
             ensure_schema(connection)
-            fields = _write_documents(connection, records, extracted, dataset_dir)
-            exceptions = _write_exceptions(connection, records, extracted, book, run_id)
+            human = _human_decisions(connection)
+            fields = _write_documents(connection, records, documents, dataset_dir)
+            exceptions = _write_exceptions(connection, records, documents, book, run_id)
+            _restore_human(connection, human)
             connection.execute(_RESTORE_CORRECTED, (ReviewStatus.HUMAN_CORRECTED.value,))
+            thresholds.replace(
+                connection,
+                scored.thresholds,
+                run_id=run_id,
+                fit_split=FIT_SPLIT,
+                threshold_split=THRESHOLD_SPLIT,
+            )
+            (auto_accepted,) = connection.execute(
+                _COUNT_AUTO_ACCEPTED, (ReviewStatus.AUTO_ACCEPTED.value,)
+            ).fetchone()
         llm_calls = _copy_cost_ledger(connection, cost_db)
     finally:
         connection.close()
     return IngestCounts(
-        documents=len(records), fields=fields, exceptions=exceptions, llm_calls=llm_calls
+        documents=len(records),
+        fields=fields,
+        exceptions=exceptions,
+        llm_calls=llm_calls,
+        auto_accepted=int(auto_accepted),
+        thresholds=scored.thresholds,
     )
+
+
+def _human_decisions(connection: sqlite3.Connection) -> list[tuple[str, float, str]]:
+    """(status, confidence, field_id) for every field a reviewer already ruled on."""
+    rows = connection.execute(
+        _SELECT_HUMAN, tuple(status.value for status in _HUMAN_STATUSES)
+    ).fetchall()
+    return [(str(row["status"]), float(row["confidence"]), str(row["field_id"])) for row in rows]
+
+
+def _restore_human(
+    connection: sqlite3.Connection, decisions: Sequence[tuple[str, float, str]]
+) -> None:
+    for decision in decisions:
+        connection.execute(_RESTORE_HUMAN, decision)
 
 
 def _load_extractions(extractions_dir: Path, config_hash: str) -> dict[str, ExtractedDocument]:

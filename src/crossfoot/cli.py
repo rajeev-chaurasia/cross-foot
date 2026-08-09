@@ -341,9 +341,16 @@ def serve(
             dataset_dir=dataset, db_path=REVIEW_DB, extractions_dir=EXTRACTIONS_DIR, cost_db=COST_DB
         )
         typer.echo(
-            f"Built {REVIEW_DB}: {counts.documents} documents, {counts.fields} fields,"
-            f" {counts.exceptions} exceptions, {counts.llm_calls} ledger rows"
+            f"Built {REVIEW_DB}: {counts.documents} documents, {counts.fields} fields"
+            f" ({counts.auto_accepted} auto accepted), {counts.exceptions} exceptions,"
+            f" {counts.llm_calls} ledger rows"
         )
+        for point in counts.thresholds:
+            typer.echo(
+                f"  {point.field_family} auto accepts at {point.threshold:.4f}:"
+                f" precision {point.auto_accept_precision:.4f},"
+                f" calibration review rate {point.review_rate:.2%}"
+            )
     if reload:
         uvicorn.run(RELOAD_TARGET, factory=True, reload=True, host=SERVE_HOST, port=port)
         return

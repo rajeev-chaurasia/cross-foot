@@ -84,6 +84,21 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     list_price_microusd INTEGER NOT NULL
 );
 
+-- The operating point a build actually thresholded the fields table at, one row
+-- per family. A scorecard's threshold_sweep records what a run found possible;
+-- this records what was used, so the metrics page names the point in force
+-- instead of choosing a fresh one at read time and hoping the two agree.
+CREATE TABLE IF NOT EXISTS applied_thresholds (
+    field_family TEXT PRIMARY KEY,
+    threshold REAL NOT NULL,
+    auto_accept_precision REAL NOT NULL,
+    review_rate REAL NOT NULL,
+    fit_split TEXT NOT NULL,
+    threshold_split TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+);
+
 -- The queue's total order, so paging reads one index rather than sorting a scan.
 CREATE INDEX IF NOT EXISTS fields_queue ON fields (confidence, field_id);
 CREATE INDEX IF NOT EXISTS fields_doc_line ON fields (doc_id, line_no);

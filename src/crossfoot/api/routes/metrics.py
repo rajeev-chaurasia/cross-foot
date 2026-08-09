@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from crossfoot.api.deps import Connection, Paths
 from crossfoot.api.dto import MetricsPayload, Summary
-from crossfoot.db import stats
+from crossfoot.db import stats, thresholds
 from crossfoot.models.scorecard import Scorecard
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,15 +33,18 @@ def stats_summary(connection: Connection) -> Summary:
 
 
 @router.get("/metrics")
-def metrics(paths: Paths) -> MetricsPayload:
+def metrics(paths: Paths, connection: Connection) -> MetricsPayload:
     """The latest committed scorecard with its calibration points and threshold sweep."""
+    # This docstring is the route description in the frozen OpenAPI snapshot, so
+    # it stays verbatim; the sweep it publishes is the operating point the
+    # database was actually built at whenever a build has applied one.
     scorecard = latest_scorecard(paths.scorecards_dir)
     if scorecard is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=NO_SCORECARD_DETAIL.format(scorecards_dir=paths.scorecards_dir),
         )
-    return MetricsPayload.of(scorecard)
+    return MetricsPayload.of(scorecard, applied=thresholds.applied(connection))
 
 
 def latest_scorecard(scorecards_dir: Path) -> Scorecard | None:
