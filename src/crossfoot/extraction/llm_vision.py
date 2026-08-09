@@ -18,10 +18,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Protocol
 
-import pypdfium2
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from crossfoot import pdfium
 from crossfoot.confidence.signals import crossfoot_delta_cents
 from crossfoot.constants import (
     FIELD_FAMILIES,
@@ -237,9 +237,16 @@ class VisionChatClient(Protocol):
 
 
 def rasterize_pdf(path: Path, *, dpi: int = VISION_DPI) -> tuple[PageImage, ...]:
-    """Every page as a PNG, capped on its longest edge to bound image tokens."""
-    document = pypdfium2.PdfDocument(path)
-    try:
+    """Every page as a PNG, capped on its longest edge to bound image tokens.
+
+    PDFium is not thread safe. Batch extraction runs documents concurrently and
+    this is a sync call, so today the event loop is the only thing keeping two
+    rasterizations apart; one `asyncio.to_thread` around it would be enough to
+    put two threads inside the library. The lock costs nothing while it is
+    uncontended and removes the trap.
+    """
+    with pdfium.open_document(path) as document:
+        # PNG bytes, so nothing leaves this scope pointing at PDFium's memory.
         return tuple(
             PageImage(
                 page=index,
@@ -247,8 +254,6 @@ def rasterize_pdf(path: Path, *, dpi: int = VISION_DPI) -> tuple[PageImage, ...]
             )
             for index in range(len(document))
         )
-    finally:
-        document.close()
 
 
 class VisionExtractor:

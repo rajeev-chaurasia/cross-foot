@@ -22,8 +22,8 @@ import threading
 from pathlib import Path
 
 import numpy as np
-import pypdfium2
 
+from crossfoot import pdfium
 from crossfoot.api.dto import CropUnavailableReason
 from crossfoot.constants import CropKind
 from crossfoot.db.crops import CropSource
@@ -91,27 +91,28 @@ def _source_path(dataset_dir: Path, file_path: str) -> Path:
 
 
 def _page_image(path: Path, page: int) -> tuple[crops.Image, int]:
-    """One rasterized page as the BGR array the crop helpers work in, and the page count."""
+    """One rasterized page as the BGR array the crop helpers work in, and the page count.
+
+    PDFium is not thread safe and this is the API's rasterization path, so the
+    whole document scope is serialized by `pdfium.open_document`. The copy into
+    numpy happens inside that scope too: the rendered bitmap is memory PDFium
+    owns, and the crop helpers run on this array long after it is closed.
+    """
     try:
-        document = pypdfium2.PdfDocument(path)
-    except (pypdfium2.PdfiumError, OSError) as error:
-        raise CropSourceError(CropUnavailableReason.SOURCE_UNREADABLE, str(error)) from error
-    try:
-        pages = len(document)
-        if not 0 <= page < pages:
-            raise CropSourceError(
-                CropUnavailableReason.PAGE_MISSING,
-                MISSING_PAGE_DETAIL.format(page=page, pages=pages),
+        with pdfium.open_document(path) as document:
+            pages = len(document)
+            if not 0 <= page < pages:
+                raise CropSourceError(
+                    CropUnavailableReason.PAGE_MISSING,
+                    MISSING_PAGE_DETAIL.format(page=page, pages=pages),
+                )
+            rendered = document[page].render(scale=REVIEW_CROP_DPI / PDF_POINTS_PER_INCH).to_pil()
+            # cv2 encodes BGR, so the channel order is flipped exactly once, here.
+            image: crops.Image = np.ascontiguousarray(
+                np.asarray(rendered.convert("RGB"), dtype=np.uint8)[:, :, ::-1]
             )
-        rendered = document[page].render(scale=REVIEW_CROP_DPI / PDF_POINTS_PER_INCH).to_pil()
-    except (pypdfium2.PdfiumError, OSError) as error:
+    except (pdfium.PdfiumError, OSError) as error:
         raise CropSourceError(CropUnavailableReason.SOURCE_UNREADABLE, str(error)) from error
-    finally:
-        document.close()
-    # cv2 encodes BGR, so the channel order is flipped exactly once, here.
-    image: crops.Image = np.ascontiguousarray(
-        np.asarray(rendered.convert("RGB"), dtype=np.uint8)[:, :, ::-1]
-    )
     return image, pages
 
 

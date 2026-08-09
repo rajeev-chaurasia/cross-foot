@@ -13,7 +13,6 @@ from typing import Any
 import cv2
 import img2pdf
 import numpy as np
-import pypdfium2 as pdfium
 from augraphy import (
     AugraphyPipeline,
     BadPhotoCopy,
@@ -24,6 +23,8 @@ from augraphy import (
     LightingGradient,
     SubtleNoise,
 )
+
+from crossfoot import pdfium
 
 SCAN_LIGHT_PROFILE = "scan_light"
 SCAN_HEAVY_PROFILE = "scan_heavy"
@@ -95,29 +96,32 @@ def degrade_to_scan(pdf_path: Path, profile: str, seed: int) -> None:
         raise ValueError(f"unknown scan profile {profile!r}") from error
     pipeline = builder(random.Random(seed))
 
-    document = pdfium.PdfDocument(pdf_path)
     # Augraphy draws from the global random and numpy generators; seed both per
     # page for determinism, then restore whatever state the caller had.
     python_state = random.getstate()
     numpy_state = np.random.get_state()
+    page_images: list[bytes] = []
     try:
-        page_images: list[bytes] = []
-        for index in range(len(document)):
-            bitmap = document[index].render(scale=SCAN_DPI / PDF_POINTS_PER_INCH)
-            image = bitmap.to_numpy()
-            random.seed(seed + index)
-            np.random.seed((seed + index) % NP_SEED_MODULUS)
-            augmented = np.clip(pipeline(image), 0, 255).astype(np.uint8)
-            success, encoded = cv2.imencode(
-                ".jpg", augmented, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY]
-            )
-            if not success:
-                raise RuntimeError(f"jpeg encoding failed for page {index} of {pdf_path}")
-            page_images.append(encoded.tobytes())
+        # PDFium is not thread safe, so the document scope holds the process
+        # wide lock. Generation is single threaded, so the lock is uncontended
+        # and the degrading stays inside the scope, where `to_numpy` still has
+        # the bitmap PDFium rendered it into.
+        with pdfium.open_document(pdf_path) as document:
+            for index in range(len(document)):
+                bitmap = document[index].render(scale=SCAN_DPI / PDF_POINTS_PER_INCH)
+                image = bitmap.to_numpy()
+                random.seed(seed + index)
+                np.random.seed((seed + index) % NP_SEED_MODULUS)
+                augmented = np.clip(pipeline(image), 0, 255).astype(np.uint8)
+                success, encoded = cv2.imencode(
+                    ".jpg", augmented, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY]
+                )
+                if not success:
+                    raise RuntimeError(f"jpeg encoding failed for page {index} of {pdf_path}")
+                page_images.append(encoded.tobytes())
     finally:
         random.setstate(python_state)
         np.random.set_state(numpy_state)
-        document.close()
 
     # The internal engine plus fixed dates yields byte-stable output; the
     # pikepdf engine derives the document /ID from the wall clock.
