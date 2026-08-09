@@ -1,6 +1,7 @@
 """Crossfoot command line interface."""
 
 import asyncio
+import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -344,7 +345,7 @@ async def _extract_split(
     ledger = CostLedger(COST_DB)
     state = RunState(RUN_STATE_DB)
     cache = ResponseCache(RESPONSE_CACHE_DB)
-    run_id = f"extract-{split}-{manifest.config_hash[:8]}"
+    run_id = _run_id(split, manifest.config_hash)
     state.start_run(run_id, list(records))
     if resume:
         # One time recovery. Rows checkpointed DONE before a provider failure
@@ -473,18 +474,43 @@ async def _extract_split(
     )
 
 
+def _run_id(split: SplitName, config_hash: str) -> str:
+    """One id per (split, dataset), so extract and calibrate agree on the file."""
+    return f"extract-{split}-{config_hash[:8]}"
+
+
+def _saved_extractions(config_hash: str, split: SplitName) -> list["ExtractedDocument"] | None:
+    """Documents a live extract run wrote for this split, or None when absent."""
+    from crossfoot.models.extraction import ExtractedDocument
+
+    path = EXTRACTIONS_DIR / f"{_run_id(split, config_hash)}.json"
+    if not path.is_file():
+        return None
+    return [ExtractedDocument.model_validate(item) for item in json.loads(path.read_text("utf-8"))]
+
+
 def _labelled_fields(
     dataset: Path, split: SplitName
 ) -> list[tuple[FieldFamily, "FieldSignals", bool]]:
-    """Extracted fields of one split paired with truth, ready for the scorer."""
+    """Extracted fields of one split paired with truth, ready for the scorer.
+
+    Prefers the documents a live `crossfoot extract` saved. Re-extracting here
+    would run the offline path only, so every scanned document would vanish and
+    the scorer would see nothing but the deterministic tiers it already gets
+    right, which reads as a perfectly calibrated model with nothing to review.
+    """
     from crossfoot.confidence.signals import attach_signals
     from crossfoot.evals.metrics import field_is_correct
     from crossfoot.evals.runner import extract_split, load_manifest, signal_context, split_records
 
     manifest = load_manifest(dataset)
     records = {record.doc_id: record for record in split_records(manifest, split)}
+    saved = _saved_extractions(manifest.config_hash, split)
+    documents = saved if saved is not None else extract_split(dataset, manifest, split).documents
     rows: list[tuple[FieldFamily, FieldSignals, bool]] = []
-    for doc in extract_split(dataset, manifest, split).documents:
+    for doc in documents:
+        if doc.doc_id not in records:
+            continue
         record = records[doc.doc_id]
         context = signal_context(record)
         if context is None or record.truth is None:
