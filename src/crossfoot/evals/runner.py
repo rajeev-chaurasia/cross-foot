@@ -40,6 +40,7 @@ from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
 from crossfoot.extraction.pdf_text import extract_pdf
 from crossfoot.extraction.router import route_file
 from crossfoot.extraction.tabular import extract_csv
+from crossfoot.extraction.xlsx import extract_xlsx
 from crossfoot.models.extraction import ExtractedDocument, ExtractedField, FieldSignals, IngestError
 from crossfoot.models.ledger import LedgerBook
 from crossfoot.models.manifest import DatasetManifest, ManifestRecord
@@ -70,6 +71,7 @@ LabelledField = tuple[FieldFamily, FieldSignals, bool]
 ROUTE_EXTRACTORS: dict[ExtractionRoute, Extractor] = {
     ExtractionRoute.CSV: extract_csv,
     ExtractionRoute.DIGITAL_PDF: extract_pdf,
+    ExtractionRoute.XLSX: extract_xlsx,
 }
 
 
