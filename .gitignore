@@ -14,3 +14,6 @@ frontend/dist/
 .coverage
 playwright-report/
 test-results/
+
+# Agent probe scripts and throwaway experiments
+scratch/
