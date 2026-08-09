@@ -113,9 +113,9 @@ class ReviewItemDetail(ReviewItem):
 
     # How the value was located on the page, so the crop panel can caption what
     # the reader is looking at instead of leaving them to guess whether a whole
-    # page means "here it is" or "we could not find it". This is what the
-    # extractor recorded; a stored box that turns out to be degenerate still
-    # renders as the full page underneath it.
+    # page means "here it is" or "we could not find it". The extractor writes it
+    # first and the renderer overwrites it with what it actually cut, so a field
+    # nobody has looked at yet reads as the fallback it would fall back to.
     crop_kind: CropKind
     signals: FieldSignals
     document: DocumentSummary

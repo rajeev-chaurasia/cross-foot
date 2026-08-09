@@ -10,10 +10,14 @@ from the renderer, which the check stands in front of.
 
 The order is containment, then the cache, then the database, then the render. A
 field the database holds always yields an image: an exact box is cut from its
-page, and a field with no usable coordinates falls back to the whole page. 404
-means the pair names no field, not that nothing has been rendered yet. A source
-document that cannot be rasterized is a property of the document, so it is a
-typed 424 body the queue can show the value around, never a 500.
+page, a vision field gets the band of the row it was read from when that row can
+be located, and anything else falls back to the whole page. 404 means the pair
+names no field, not that nothing has been rendered yet. A source document that
+cannot be rasterized is a property of the document, so it is a typed 424 body the
+queue can show the value around, never a 500.
+
+Rendering writes twice: the cached PNG, and the crop_kind the render settled on,
+because only the render has the page image the decision needs.
 """
 
 from __future__ import annotations
@@ -81,7 +85,7 @@ def crop(paths: Paths, connection: Connection, doc_id: str, field_id: str) -> Re
             detail=MISSING_CROP_DETAIL.format(doc_id=doc_id, field_id=field_id),
         )
     try:
-        render_crop_file(source=source, dataset_dir=paths.dataset_dir, destination=path)
+        kind = render_crop_file(source=source, dataset_dir=paths.dataset_dir, destination=path)
     except CropSourceError as error:
         _LOGGER.warning("no crop for %s/%s: %s", doc_id, field_id, error.detail)
         payload = CropUnavailable(
@@ -90,4 +94,7 @@ def crop(paths: Paths, connection: Connection, doc_id: str, field_id: str) -> Re
         return JSONResponse(
             status_code=CROP_UNAVAILABLE_STATUS, content=payload.model_dump(mode="json")
         )
+    # Publishing the crop and recording how it was found are one act: the caption
+    # the queue shows beside a picture has to describe that picture.
+    crop_db.record_kind(connection, doc_id=doc_id, field_id=field_id, kind=kind)
     return FileResponse(path, media_type=PNG_MEDIA_TYPE)

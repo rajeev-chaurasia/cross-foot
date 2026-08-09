@@ -25,6 +25,7 @@ import numpy as np
 import pypdfium2
 
 from crossfoot.api.dto import CropUnavailableReason
+from crossfoot.constants import CropKind
 from crossfoot.db.crops import CropSource
 from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
 from crossfoot.extraction import crops
@@ -39,6 +40,10 @@ PDF_POINTS_PER_INCH = 72
 
 MISSING_SOURCE_DETAIL = "the dataset holds no file at {file_path}"
 MISSING_PAGE_DETAIL = "page {page} is not in a document of {pages} pages"
+# A row_position counts the rows visible on one page. Which page a model was
+# looking at is not recorded, so on a document of several pages the number
+# indexes nothing and the whole page is the only honest answer.
+SINGLE_PAGE = 1
 # The suffix of the temporary file an in-flight render writes to, before the
 # rename that publishes it.
 PENDING_SUFFIX = ".pending"
@@ -53,11 +58,22 @@ class CropSourceError(Exception):
         self.detail = detail
 
 
-def render_crop_file(*, source: CropSource, dataset_dir: Path, destination: Path) -> None:
-    """Rasterize the field's page, cut its region, and cache the PNG at destination."""
-    image = _page_image(_source_path(dataset_dir, source.file_path), source.page)
-    box, _kind = crops.review_region(source.bbox, image)
-    _publish(destination, crops.encode_png(image[box.top : box.bottom, box.left : box.right]))
+def render_crop_file(*, source: CropSource, dataset_dir: Path, destination: Path) -> CropKind:
+    """Rasterize the field's page, cut its region, and cache the PNG at destination.
+
+    Returns how the region was actually found, which is knowable only here: the
+    row band needs the page image the extractor no longer has.
+    """
+    image, pages = _page_image(_source_path(dataset_dir, source.file_path), source.page)
+    region = crops.review_region(
+        source.bbox,
+        image,
+        row_position=source.row_position if pages == SINGLE_PAGE else None,
+        expected_rows=source.expected_rows,
+        hint=source.hint,
+    )
+    _publish(destination, crops.encode_png(crops.fit_to_served_edge(region.cut())))
+    return region.kind
 
 
 def _source_path(dataset_dir: Path, file_path: str) -> Path:
@@ -74,8 +90,8 @@ def _source_path(dataset_dir: Path, file_path: str) -> Path:
     return path
 
 
-def _page_image(path: Path, page: int) -> crops.Image:
-    """One rasterized page, as the BGR array the crop helpers work in."""
+def _page_image(path: Path, page: int) -> tuple[crops.Image, int]:
+    """One rasterized page as the BGR array the crop helpers work in, and the page count."""
     try:
         document = pypdfium2.PdfDocument(path)
     except (pypdfium2.PdfiumError, OSError) as error:
@@ -96,7 +112,7 @@ def _page_image(path: Path, page: int) -> crops.Image:
     image: crops.Image = np.ascontiguousarray(
         np.asarray(rendered.convert("RGB"), dtype=np.uint8)[:, :, ::-1]
     )
-    return image
+    return image, pages
 
 
 def _publish(destination: Path, payload: bytes) -> None:
