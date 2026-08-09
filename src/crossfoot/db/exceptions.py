@@ -1,0 +1,83 @@
+"""Exception dashboard reads and the resolve writer.
+
+Ranking and filtering both use absolute dollar impact, so a 600.00 credit the
+dealer never received outranks a 120.00 overcharge and clears the same floor.
+Signed impact stays in the row, because the direction is what a reviewer acts on.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from datetime import UTC, datetime
+from enum import StrEnum
+
+from crossfoot.constants import ExceptionStatus, ExceptionType
+
+
+class ExceptionSort(StrEnum):
+    """The orders the dashboard can be asked for. Each one is total."""
+
+    IMPACT = "impact"
+
+
+_ORDER_BY: dict[ExceptionSort, str] = {
+    ExceptionSort.IMPACT: "ABS(dollar_impact_cents) DESC, exception_id ASC"
+}
+
+# min_impact_cents compares the same absolute impact the ranking sorts by, so a
+# floor of zero keeps a timing difference that carries no dollars.
+_FILTERS = """
+    WHERE (:exception_type IS NULL OR exception_type = :exception_type)
+      AND (:status IS NULL OR status = :status)
+      AND (:min_impact_cents IS NULL OR ABS(dollar_impact_cents) >= :min_impact_cents)
+"""
+
+_LISTING = f"SELECT * FROM exceptions {_FILTERS} ORDER BY {{order_by}}"
+
+_TOTAL = f"SELECT COUNT(*) AS total FROM exceptions {_FILTERS}"
+
+_ONE = "SELECT * FROM exceptions WHERE exception_id = :exception_id"
+
+_RESOLVE = """
+UPDATE exceptions
+SET status = :status, resolution = :resolution, resolved_at = :resolved_at
+WHERE exception_id = :exception_id
+"""
+
+
+def listing(
+    connection: sqlite3.Connection,
+    *,
+    exception_type: ExceptionType | None,
+    status: ExceptionStatus | None,
+    min_impact_cents: int | None,
+    sort: ExceptionSort,
+) -> tuple[list[sqlite3.Row], int]:
+    """Every exception matching the filter, ranked, and the count it matched."""
+    filters = {
+        "exception_type": None if exception_type is None else exception_type.value,
+        "status": None if status is None else status.value,
+        "min_impact_cents": min_impact_cents,
+    }
+    rows = connection.execute(_LISTING.format(order_by=_ORDER_BY[sort]), filters).fetchall()
+    (total,) = connection.execute(_TOTAL, filters).fetchone()
+    return list(rows), int(total)
+
+
+def one(connection: sqlite3.Connection, exception_id: str) -> sqlite3.Row | None:
+    row: sqlite3.Row | None = connection.execute(_ONE, {"exception_id": exception_id}).fetchone()
+    return row
+
+
+def resolve(connection: sqlite3.Connection, *, exception_id: str, resolution: str) -> None:
+    """Close an exception. Idempotent: resolving twice records the later note."""
+    with connection:
+        connection.execute(
+            _RESOLVE,
+            {
+                "status": ExceptionStatus.RESOLVED.value,
+                "resolution": resolution,
+                "resolved_at": datetime.now(UTC).isoformat(),
+                "exception_id": exception_id,
+            },
+        )

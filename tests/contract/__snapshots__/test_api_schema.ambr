@@ -1,0 +1,1752 @@
+# serializer version: 1
+# name: test_openapi_schema_is_the_frozen_frontend_contract
+  '''
+  {
+    "components": {
+      "schemas": {
+        "CalibrationBin": {
+          "properties": {
+            "count": {
+              "title": "Count",
+              "type": "integer"
+            },
+            "empirical_accuracy": {
+              "title": "Empirical Accuracy",
+              "type": "number"
+            },
+            "field_family": {
+              "$ref": "#/components/schemas/FieldFamily"
+            },
+            "mean_confidence": {
+              "title": "Mean Confidence",
+              "type": "number"
+            }
+          },
+          "required": [
+            "field_family",
+            "mean_confidence",
+            "empirical_accuracy",
+            "count"
+          ],
+          "title": "CalibrationBin",
+          "type": "object"
+        },
+        "CorrectionRequest": {
+          "description": "A reviewer's replacement value, validated against the field's family.",
+          "properties": {
+            "reviewer": {
+              "title": "Reviewer",
+              "type": "string"
+            },
+            "value": {
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": [
+            "value",
+            "reviewer"
+          ],
+          "title": "CorrectionRequest",
+          "type": "object"
+        },
+        "CostCell": {
+          "properties": {
+            "calls": {
+              "title": "Calls",
+              "type": "integer"
+            },
+            "completion_tokens": {
+              "title": "Completion Tokens",
+              "type": "integer"
+            },
+            "list_price_microusd": {
+              "title": "List Price Microusd",
+              "type": "integer"
+            },
+            "prompt_tokens": {
+              "title": "Prompt Tokens",
+              "type": "integer"
+            },
+            "provider": {
+              "$ref": "#/components/schemas/Provider"
+            },
+            "quality_tier": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/QualityTier"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "provider",
+            "calls",
+            "prompt_tokens",
+            "completion_tokens",
+            "list_price_microusd"
+          ],
+          "title": "CostCell",
+          "type": "object"
+        },
+        "DocType": {
+          "enum": [
+            "parts_statement",
+            "warranty_credit_memo",
+            "floorplan_statement",
+            "incentive_statement"
+          ],
+          "title": "DocType",
+          "type": "string"
+        },
+        "DocumentSummary": {
+          "description": "The document a field was read from.",
+          "properties": {
+            "doc_id": {
+              "title": "Doc Id",
+              "type": "string"
+            },
+            "doc_type": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DocType"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error_kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/IngestErrorKind"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "file_path": {
+              "title": "File Path",
+              "type": "string"
+            },
+            "quality_tier": {
+              "$ref": "#/components/schemas/QualityTier"
+            },
+            "route": {
+              "$ref": "#/components/schemas/ExtractionRoute"
+            },
+            "split": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SplitName"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "doc_id",
+            "file_path",
+            "doc_type",
+            "quality_tier",
+            "route",
+            "split",
+            "error_kind"
+          ],
+          "title": "DocumentSummary",
+          "type": "object"
+        },
+        "ExceptionItem": {
+          "description": "The frozen exception record plus the two columns resolving one writes.",
+          "properties": {
+            "detected_at": {
+              "format": "date-time",
+              "title": "Detected At",
+              "type": "string"
+            },
+            "doc_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Doc Id"
+            },
+            "dollar_impact_cents": {
+              "title": "Dollar Impact Cents",
+              "type": "integer"
+            },
+            "exception_id": {
+              "title": "Exception Id",
+              "type": "string"
+            },
+            "exception_type": {
+              "$ref": "#/components/schemas/ExceptionType"
+            },
+            "explanation": {
+              "title": "Explanation",
+              "type": "string"
+            },
+            "ledger_amount_cents": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Amount Cents"
+            },
+            "ledger_entry_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ledger Entry Id"
+            },
+            "match_key": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Match Key"
+            },
+            "memo_amount_cents": {
+              "default": 0,
+              "title": "Memo Amount Cents",
+              "type": "integer"
+            },
+            "resolution": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resolution"
+            },
+            "resolved_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resolved At"
+            },
+            "run_id": {
+              "title": "Run Id",
+              "type": "string"
+            },
+            "statement_amount_cents": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Statement Amount Cents"
+            },
+            "statement_line_no": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Statement Line No"
+            },
+            "status": {
+              "$ref": "#/components/schemas/ExceptionStatus",
+              "default": "open"
+            }
+          },
+          "required": [
+            "exception_id",
+            "run_id",
+            "exception_type",
+            "dollar_impact_cents",
+            "explanation",
+            "detected_at"
+          ],
+          "title": "ExceptionItem",
+          "type": "object"
+        },
+        "ExceptionSort": {
+          "description": "The orders the dashboard can be asked for. Each one is total.",
+          "enum": [
+            "impact"
+          ],
+          "title": "ExceptionSort",
+          "type": "string"
+        },
+        "ExceptionStatus": {
+          "enum": [
+            "open",
+            "resolved"
+          ],
+          "title": "ExceptionStatus",
+          "type": "string"
+        },
+        "ExceptionType": {
+          "enum": [
+            "missing_from_ledger",
+            "missing_from_statement",
+            "amount_mismatch",
+            "duplicate",
+            "short_pay",
+            "timing_difference"
+          ],
+          "title": "ExceptionType",
+          "type": "string"
+        },
+        "ExtractionRoute": {
+          "enum": [
+            "digital_pdf",
+            "scanned_pdf",
+            "csv",
+            "xlsx",
+            "unprocessable"
+          ],
+          "title": "ExtractionRoute",
+          "type": "string"
+        },
+        "FieldAccuracyCell": {
+          "properties": {
+            "correct_canonical": {
+              "title": "Correct Canonical",
+              "type": "integer"
+            },
+            "correct_raw": {
+              "title": "Correct Raw",
+              "type": "integer"
+            },
+            "field_family": {
+              "$ref": "#/components/schemas/FieldFamily"
+            },
+            "fields_expected": {
+              "title": "Fields Expected",
+              "type": "integer"
+            },
+            "fields_extracted": {
+              "title": "Fields Extracted",
+              "type": "integer"
+            },
+            "fields_in_truth": {
+              "default": 0,
+              "title": "Fields In Truth",
+              "type": "integer"
+            },
+            "fields_spurious": {
+              "default": 0,
+              "title": "Fields Spurious",
+              "type": "integer"
+            },
+            "quality_tier": {
+              "$ref": "#/components/schemas/QualityTier"
+            }
+          },
+          "required": [
+            "field_family",
+            "quality_tier",
+            "fields_expected",
+            "fields_extracted",
+            "correct_canonical",
+            "correct_raw"
+          ],
+          "title": "FieldAccuracyCell",
+          "type": "object"
+        },
+        "FieldFamily": {
+          "enum": [
+            "amount",
+            "date",
+            "reference",
+            "text"
+          ],
+          "title": "FieldFamily",
+          "type": "string"
+        },
+        "FieldName": {
+          "enum": [
+            "statement_number",
+            "statement_date",
+            "total",
+            "subtotal",
+            "previous_balance",
+            "claim_number",
+            "ro_number",
+            "vin",
+            "invoice_number",
+            "program_code",
+            "line_date",
+            "line_amount",
+            "description"
+          ],
+          "title": "FieldName",
+          "type": "string"
+        },
+        "FieldSignals": {
+          "description": "Raw evidence feeding the confidence model. None means signal unavailable.",
+          "properties": {
+            "char_ambiguity": {
+              "default": 0.0,
+              "title": "Char Ambiguity",
+              "type": "number"
+            },
+            "crossfoot_ok": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Crossfoot Ok"
+            },
+            "crossfoot_residual_suspect": {
+              "default": false,
+              "title": "Crossfoot Residual Suspect",
+              "type": "boolean"
+            },
+            "det_llm_agreement": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Det Llm Agreement"
+            },
+            "grammar_match": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Grammar Match"
+            },
+            "quality_tier": {
+              "$ref": "#/components/schemas/QualityTier"
+            },
+            "self_consistency": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Self Consistency"
+            },
+            "validator_pass": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Validator Pass"
+            }
+          },
+          "required": [
+            "quality_tier"
+          ],
+          "title": "FieldSignals",
+          "type": "object"
+        },
+        "HTTPValidationError": {
+          "properties": {
+            "detail": {
+              "items": {
+                "$ref": "#/components/schemas/ValidationError"
+              },
+              "title": "Detail",
+              "type": "array"
+            }
+          },
+          "title": "HTTPValidationError",
+          "type": "object"
+        },
+        "IngestErrorKind": {
+          "enum": [
+            "truncated",
+            "encrypted",
+            "empty",
+            "unrecognized",
+            "too_large",
+            "provider_unavailable"
+          ],
+          "title": "IngestErrorKind",
+          "type": "string"
+        },
+        "MetricsPayload": {
+          "description": "The latest committed scorecard, with the two curves the metrics page draws.",
+          "properties": {
+            "calibration": {
+              "items": {
+                "$ref": "#/components/schemas/CalibrationBin"
+              },
+              "title": "Calibration",
+              "type": "array"
+            },
+            "scorecard": {
+              "$ref": "#/components/schemas/Scorecard"
+            },
+            "threshold_sweep": {
+              "items": {
+                "$ref": "#/components/schemas/ThresholdPoint"
+              },
+              "title": "Threshold Sweep",
+              "type": "array"
+            }
+          },
+          "required": [
+            "scorecard",
+            "calibration",
+            "threshold_sweep"
+          ],
+          "title": "MetricsPayload",
+          "type": "object"
+        },
+        "Page_DocumentSummary_": {
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/DocumentSummary"
+              },
+              "title": "Items",
+              "type": "array"
+            },
+            "total": {
+              "title": "Total",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "items",
+            "total"
+          ],
+          "title": "Page[DocumentSummary]",
+          "type": "object"
+        },
+        "Page_ExceptionItem_": {
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/ExceptionItem"
+              },
+              "title": "Items",
+              "type": "array"
+            },
+            "total": {
+              "title": "Total",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "items",
+            "total"
+          ],
+          "title": "Page[ExceptionItem]",
+          "type": "object"
+        },
+        "Page_ReviewItem_": {
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/ReviewItem"
+              },
+              "title": "Items",
+              "type": "array"
+            },
+            "total": {
+              "title": "Total",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "items",
+            "total"
+          ],
+          "title": "Page[ReviewItem]",
+          "type": "object"
+        },
+        "Provider": {
+          "enum": [
+            "custom",
+            "gemini",
+            "groq",
+            "openrouter",
+            "mistral"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "QualityTier": {
+          "enum": [
+            "clean_digital",
+            "scan_light",
+            "scan_heavy",
+            "csv",
+            "xlsx",
+            "corrupted"
+          ],
+          "title": "QualityTier",
+          "type": "string"
+        },
+        "QueueSort": {
+          "description": "The orders the queue can be asked for. Each one is total.",
+          "enum": [
+            "confidence"
+          ],
+          "title": "QueueSort",
+          "type": "string"
+        },
+        "ReconCell": {
+          "properties": {
+            "caught_dollar_cents": {
+              "title": "Caught Dollar Cents",
+              "type": "integer"
+            },
+            "detected_false": {
+              "title": "Detected False",
+              "type": "integer"
+            },
+            "detected_true": {
+              "title": "Detected True",
+              "type": "integer"
+            },
+            "exception_type": {
+              "$ref": "#/components/schemas/ExceptionType"
+            },
+            "injected": {
+              "title": "Injected",
+              "type": "integer"
+            },
+            "injected_dollar_cents": {
+              "title": "Injected Dollar Cents",
+              "type": "integer"
+            },
+            "mode": {
+              "$ref": "#/components/schemas/ReconMode"
+            }
+          },
+          "required": [
+            "mode",
+            "exception_type",
+            "injected",
+            "detected_true",
+            "detected_false",
+            "injected_dollar_cents",
+            "caught_dollar_cents"
+          ],
+          "title": "ReconCell",
+          "type": "object"
+        },
+        "ReconMode": {
+          "enum": [
+            "end_to_end",
+            "oracle"
+          ],
+          "title": "ReconMode",
+          "type": "string"
+        },
+        "ResolutionRequest": {
+          "description": "What a reviewer did about an exception, recorded as they close it.",
+          "properties": {
+            "resolution": {
+              "title": "Resolution",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolution"
+          ],
+          "title": "ResolutionRequest",
+          "type": "object"
+        },
+        "ReviewItem": {
+          "description": "One field in the queue: what was read, how much it is trusted, and the crop.",
+          "properties": {
+            "confidence": {
+              "title": "Confidence",
+              "type": "number"
+            },
+            "crop_url": {
+              "title": "Crop Url",
+              "type": "string"
+            },
+            "doc_id": {
+              "title": "Doc Id",
+              "type": "string"
+            },
+            "family": {
+              "$ref": "#/components/schemas/FieldFamily"
+            },
+            "field_id": {
+              "title": "Field Id",
+              "type": "string"
+            },
+            "line_no": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line No"
+            },
+            "name": {
+              "$ref": "#/components/schemas/FieldName"
+            },
+            "raw_text": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Raw Text"
+            },
+            "status": {
+              "$ref": "#/components/schemas/ReviewStatus"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Value"
+            }
+          },
+          "required": [
+            "field_id",
+            "doc_id",
+            "line_no",
+            "name",
+            "family",
+            "raw_text",
+            "value",
+            "confidence",
+            "status",
+            "crop_url"
+          ],
+          "title": "ReviewItem",
+          "type": "object"
+        },
+        "ReviewItemDetail": {
+          "description": "The queue item plus everything a reviewer needs to judge it in one screen.",
+          "properties": {
+            "confidence": {
+              "title": "Confidence",
+              "type": "number"
+            },
+            "crop_url": {
+              "title": "Crop Url",
+              "type": "string"
+            },
+            "doc_id": {
+              "title": "Doc Id",
+              "type": "string"
+            },
+            "document": {
+              "$ref": "#/components/schemas/DocumentSummary"
+            },
+            "family": {
+              "$ref": "#/components/schemas/FieldFamily"
+            },
+            "field_id": {
+              "title": "Field Id",
+              "type": "string"
+            },
+            "line_no": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line No"
+            },
+            "name": {
+              "$ref": "#/components/schemas/FieldName"
+            },
+            "neighbors": {
+              "items": {
+                "$ref": "#/components/schemas/ReviewItem"
+              },
+              "title": "Neighbors",
+              "type": "array"
+            },
+            "raw_text": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Raw Text"
+            },
+            "signals": {
+              "$ref": "#/components/schemas/FieldSignals"
+            },
+            "status": {
+              "$ref": "#/components/schemas/ReviewStatus"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Value"
+            }
+          },
+          "required": [
+            "field_id",
+            "doc_id",
+            "line_no",
+            "name",
+            "family",
+            "raw_text",
+            "value",
+            "confidence",
+            "status",
+            "crop_url",
+            "signals",
+            "document",
+            "neighbors"
+          ],
+          "title": "ReviewItemDetail",
+          "type": "object"
+        },
+        "ReviewStatus": {
+          "enum": [
+            "auto_accepted",
+            "needs_review",
+            "human_accepted",
+            "human_corrected"
+          ],
+          "title": "ReviewStatus",
+          "type": "string"
+        },
+        "Scorecard": {
+          "properties": {
+            "calibration": {
+              "default": [],
+              "items": {
+                "$ref": "#/components/schemas/CalibrationBin"
+              },
+              "title": "Calibration",
+              "type": "array"
+            },
+            "costs": {
+              "default": [],
+              "items": {
+                "$ref": "#/components/schemas/CostCell"
+              },
+              "title": "Costs",
+              "type": "array"
+            },
+            "created_at": {
+              "format": "date-time",
+              "title": "Created At",
+              "type": "string"
+            },
+            "dataset_config_hash": {
+              "title": "Dataset Config Hash",
+              "type": "string"
+            },
+            "documents_processed": {
+              "title": "Documents Processed",
+              "type": "integer"
+            },
+            "documents_total": {
+              "title": "Documents Total",
+              "type": "integer"
+            },
+            "documents_unprocessable": {
+              "title": "Documents Unprocessable",
+              "type": "integer"
+            },
+            "field_accuracy": {
+              "items": {
+                "$ref": "#/components/schemas/FieldAccuracyCell"
+              },
+              "title": "Field Accuracy",
+              "type": "array"
+            },
+            "git_sha": {
+              "title": "Git Sha",
+              "type": "string"
+            },
+            "master_seed": {
+              "title": "Master Seed",
+              "type": "integer"
+            },
+            "models_used": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Models Used",
+              "type": "array"
+            },
+            "notes": {
+              "default": "",
+              "title": "Notes",
+              "type": "string"
+            },
+            "reconciliation": {
+              "default": [],
+              "items": {
+                "$ref": "#/components/schemas/ReconCell"
+              },
+              "title": "Reconciliation",
+              "type": "array"
+            },
+            "run_id": {
+              "title": "Run Id",
+              "type": "string"
+            },
+            "split": {
+              "$ref": "#/components/schemas/SplitName"
+            },
+            "threshold_sweep": {
+              "default": [],
+              "items": {
+                "$ref": "#/components/schemas/ThresholdPoint"
+              },
+              "title": "Threshold Sweep",
+              "type": "array"
+            }
+          },
+          "required": [
+            "run_id",
+            "created_at",
+            "git_sha",
+            "dataset_config_hash",
+            "master_seed",
+            "split",
+            "models_used",
+            "documents_total",
+            "documents_processed",
+            "documents_unprocessable",
+            "field_accuracy"
+          ],
+          "title": "Scorecard",
+          "type": "object"
+        },
+        "SplitName": {
+          "enum": [
+            "train",
+            "calibration",
+            "test"
+          ],
+          "title": "SplitName",
+          "type": "string"
+        },
+        "Summary": {
+          "description": "The tile above the queue. Every number is counted in SQL, never in the UI.",
+          "properties": {
+            "auto_accept_rate": {
+              "title": "Auto Accept Rate",
+              "type": "number"
+            },
+            "cost_per_document_microusd": {
+              "title": "Cost Per Document Microusd",
+              "type": "integer"
+            },
+            "documents_processed": {
+              "title": "Documents Processed",
+              "type": "integer"
+            },
+            "fields_extracted": {
+              "title": "Fields Extracted",
+              "type": "integer"
+            },
+            "gross_dollars_at_risk_cents": {
+              "title": "Gross Dollars At Risk Cents",
+              "type": "integer"
+            },
+            "open_exception_count": {
+              "title": "Open Exception Count",
+              "type": "integer"
+            },
+            "review_queue_depth": {
+              "title": "Review Queue Depth",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "documents_processed",
+            "fields_extracted",
+            "auto_accept_rate",
+            "review_queue_depth",
+            "open_exception_count",
+            "gross_dollars_at_risk_cents",
+            "cost_per_document_microusd"
+          ],
+          "title": "Summary",
+          "type": "object"
+        },
+        "ThresholdPoint": {
+          "properties": {
+            "auto_accept_precision": {
+              "title": "Auto Accept Precision",
+              "type": "number"
+            },
+            "field_family": {
+              "$ref": "#/components/schemas/FieldFamily"
+            },
+            "review_rate": {
+              "title": "Review Rate",
+              "type": "number"
+            },
+            "threshold": {
+              "title": "Threshold",
+              "type": "number"
+            }
+          },
+          "required": [
+            "field_family",
+            "threshold",
+            "auto_accept_precision",
+            "review_rate"
+          ],
+          "title": "ThresholdPoint",
+          "type": "object"
+        },
+        "ValidationError": {
+          "properties": {
+            "ctx": {
+              "title": "Context",
+              "type": "object"
+            },
+            "input": {
+              "title": "Input"
+            },
+            "loc": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              },
+              "title": "Location",
+              "type": "array"
+            },
+            "msg": {
+              "title": "Message",
+              "type": "string"
+            },
+            "type": {
+              "title": "Error Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "loc",
+            "msg",
+            "type"
+          ],
+          "title": "ValidationError",
+          "type": "object"
+        }
+      }
+    },
+    "info": {
+      "description": "The review queue, the exceptions dashboard, and the published calibration figures.",
+      "title": "Crossfoot review API",
+      "version": "0.1.0"
+    },
+    "openapi": "3.1.0",
+    "paths": {
+      "/api/crops/{doc_id}/{field_id}.png": {
+        "get": {
+          "description": "The cached crop for one field, or 400 for a segment that leaves the crop root.",
+          "operationId": "crop_api_crops__doc_id___field_id__png_get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "doc_id",
+              "required": true,
+              "schema": {
+                "title": "Doc Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "path",
+              "name": "field_id",
+              "required": true,
+              "schema": {
+                "title": "Field Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "image/png": {}
+              },
+              "description": "The cached crop."
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Crop",
+          "tags": [
+            "crops"
+          ]
+        }
+      },
+      "/api/documents": {
+        "get": {
+          "description": "Every ingested document matching the filter, in doc_id order.",
+          "operationId": "list_documents_api_documents_get",
+          "parameters": [
+            {
+              "description": "How the file was routed.",
+              "in": "query",
+              "name": "route",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ExtractionRoute"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How the file was routed.",
+                "title": "Route"
+              }
+            },
+            {
+              "description": "train, calibration, or test.",
+              "in": "query",
+              "name": "split",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SplitName"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "train, calibration, or test.",
+                "title": "Split"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Page_DocumentSummary_"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "List Documents",
+          "tags": [
+            "documents"
+          ]
+        }
+      },
+      "/api/documents/{doc_id}": {
+        "get": {
+          "description": "One document, including the error kind when nothing could be extracted from it.",
+          "operationId": "get_document_api_documents__doc_id__get",
+          "parameters": [
+            {
+              "description": "Document identifier from the dataset manifest.",
+              "in": "path",
+              "name": "doc_id",
+              "required": true,
+              "schema": {
+                "description": "Document identifier from the dataset manifest.",
+                "title": "Doc Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/DocumentSummary"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Get Document",
+          "tags": [
+            "documents"
+          ]
+        }
+      },
+      "/api/exceptions": {
+        "get": {
+          "description": "Exceptions ranked by absolute dollar impact, largest first.",
+          "operationId": "list_exceptions_api_exceptions_get",
+          "parameters": [
+            {
+              "description": "One of the six exception types.",
+              "in": "query",
+              "name": "type",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ExceptionType"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "One of the six exception types.",
+                "title": "Type"
+              }
+            },
+            {
+              "description": "Open state.",
+              "in": "query",
+              "name": "status",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ExceptionStatus"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Open state.",
+                "title": "Status"
+              }
+            },
+            {
+              "description": "Floor on absolute dollar impact, the same value the rank uses.",
+              "in": "query",
+              "name": "min_impact_cents",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Floor on absolute dollar impact, the same value the rank uses.",
+                "title": "Min Impact Cents"
+              }
+            },
+            {
+              "description": "Ranking, always total.",
+              "in": "query",
+              "name": "sort",
+              "required": false,
+              "schema": {
+                "$ref": "#/components/schemas/ExceptionSort",
+                "default": "impact",
+                "description": "Ranking, always total."
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Page_ExceptionItem_"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "List Exceptions",
+          "tags": [
+            "exceptions"
+          ]
+        }
+      },
+      "/api/exceptions/{exception_id}/resolve": {
+        "post": {
+          "description": "Close an exception, recording what was done about it. The dollars stay as detected.",
+          "operationId": "resolve_exception_api_exceptions__exception_id__resolve_post",
+          "parameters": [
+            {
+              "description": "Exception being worked.",
+              "in": "path",
+              "name": "exception_id",
+              "required": true,
+              "schema": {
+                "description": "Exception being worked.",
+                "title": "Exception Id",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolutionRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ExceptionItem"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Resolve Exception",
+          "tags": [
+            "exceptions"
+          ]
+        }
+      },
+      "/api/metrics": {
+        "get": {
+          "description": "The latest committed scorecard with its calibration points and threshold sweep.",
+          "operationId": "metrics_api_metrics_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/MetricsPayload"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Metrics",
+          "tags": [
+            "metrics"
+          ]
+        }
+      },
+      "/api/review/items/{field_id}": {
+        "get": {
+          "description": "One field with its signal breakdown, its document, and the rest of its line.",
+          "operationId": "review_item_api_review_items__field_id__get",
+          "parameters": [
+            {
+              "description": "Field the reviewer is looking at.",
+              "in": "path",
+              "name": "field_id",
+              "required": true,
+              "schema": {
+                "description": "Field the reviewer is looking at.",
+                "title": "Field Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ReviewItemDetail"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Review Item",
+          "tags": [
+            "review"
+          ]
+        }
+      },
+      "/api/review/items/{field_id}/accept": {
+        "post": {
+          "description": "Keep the extracted value and mark it reviewed.",
+          "operationId": "accept_item_api_review_items__field_id__accept_post",
+          "parameters": [
+            {
+              "description": "Field the reviewer is looking at.",
+              "in": "path",
+              "name": "field_id",
+              "required": true,
+              "schema": {
+                "description": "Field the reviewer is looking at.",
+                "title": "Field Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ReviewItem"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Accept Item",
+          "tags": [
+            "review"
+          ]
+        }
+      },
+      "/api/review/items/{field_id}/correct": {
+        "post": {
+          "description": "Replace a value with the reviewer's reading, appending to its history.",
+          "operationId": "correct_item_api_review_items__field_id__correct_post",
+          "parameters": [
+            {
+              "description": "Field the reviewer is looking at.",
+              "in": "path",
+              "name": "field_id",
+              "required": true,
+              "schema": {
+                "description": "Field the reviewer is looking at.",
+                "title": "Field Id",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorrectionRequest"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ReviewItem"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Correct Item",
+          "tags": [
+            "review"
+          ]
+        }
+      },
+      "/api/review/queue": {
+        "get": {
+          "description": "Fields ranked least trusted first, with the count the filter matched.",
+          "operationId": "review_queue_api_review_queue_get",
+          "parameters": [
+            {
+              "description": "Unset means every field, not only the queue.",
+              "in": "query",
+              "name": "status",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ReviewStatus"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Unset means every field, not only the queue.",
+                "title": "Status"
+              }
+            },
+            {
+              "description": "Field family.",
+              "in": "query",
+              "name": "family",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/FieldFamily"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field family.",
+                "title": "Family"
+              }
+            },
+            {
+              "description": "Quality tier of the document.",
+              "in": "query",
+              "name": "tier",
+              "required": false,
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/QualityTier"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Quality tier of the document.",
+                "title": "Tier"
+              }
+            },
+            {
+              "description": "Queue order, always total.",
+              "in": "query",
+              "name": "sort",
+              "required": false,
+              "schema": {
+                "$ref": "#/components/schemas/QueueSort",
+                "default": "confidence",
+                "description": "Queue order, always total."
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 500,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            {
+              "in": "query",
+              "name": "offset",
+              "required": false,
+              "schema": {
+                "default": 0,
+                "minimum": 0,
+                "title": "Offset",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Page_ReviewItem_"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "summary": "Review Queue",
+          "tags": [
+            "review"
+          ]
+        }
+      },
+      "/api/stats/summary": {
+        "get": {
+          "description": "Counts, rates, and money, all of them counted in SQL.",
+          "operationId": "stats_summary_api_stats_summary_get",
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Summary"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            }
+          },
+          "summary": "Stats Summary",
+          "tags": [
+            "metrics"
+          ]
+        }
+      }
+    }
+  }
+  '''
+# ---

@@ -1,0 +1,58 @@
+"""The metrics route publishes the latest committed scorecard, and nothing when there is none."""
+
+from datetime import UTC, datetime
+from pathlib import Path
+
+from crossfoot.api.routes.metrics import SCORECARD_FILENAME, latest_scorecard
+from crossfoot.constants import SplitName
+from crossfoot.models.scorecard import Scorecard
+
+OLDER_RUN_ID = "20260801T120000-aaaaaaa"
+NEWER_RUN_ID = "20260807T090000-bbbbbbb"
+# Later in time but earlier by name, so ordering by run id alone would pick wrong.
+LATEST_RUN_ID = "20260731T000000-ccccccc"
+
+
+def scorecard(run_id: str, created_at: datetime) -> Scorecard:
+    return Scorecard(
+        run_id=run_id,
+        created_at=created_at,
+        git_sha=run_id.split("-")[1],
+        dataset_config_hash="b" * 64,
+        master_seed=42,
+        split=SplitName.TEST,
+        models_used=(),
+        documents_total=1,
+        documents_processed=1,
+        documents_unprocessable=0,
+        field_accuracy=(),
+    )
+
+
+def commit(root: Path, card: Scorecard) -> None:
+    run_dir = root / card.run_id
+    run_dir.mkdir(parents=True)
+    (run_dir / SCORECARD_FILENAME).write_text(card.model_dump_json(indent=2), encoding="utf-8")
+
+
+def test_no_committed_scorecard_is_not_an_error(tmp_path: Path) -> None:
+    assert latest_scorecard(tmp_path) is None
+
+
+def test_the_newest_scorecard_wins_even_when_its_name_sorts_first(tmp_path: Path) -> None:
+    commit(tmp_path, scorecard(OLDER_RUN_ID, datetime(2026, 8, 1, 12, 0, tzinfo=UTC)))
+    commit(tmp_path, scorecard(NEWER_RUN_ID, datetime(2026, 8, 7, 9, 0, tzinfo=UTC)))
+    commit(tmp_path, scorecard(LATEST_RUN_ID, datetime(2026, 8, 9, 6, 0, tzinfo=UTC)))
+    latest = latest_scorecard(tmp_path)
+    assert latest is not None
+    assert latest.run_id == LATEST_RUN_ID
+
+
+def test_a_scorecard_that_no_longer_validates_is_skipped_rather_than_fatal(tmp_path: Path) -> None:
+    commit(tmp_path, scorecard(OLDER_RUN_ID, datetime(2026, 8, 1, 12, 0, tzinfo=UTC)))
+    broken = tmp_path / "20260808T000000-ddddddd"
+    broken.mkdir()
+    (broken / SCORECARD_FILENAME).write_text('{"run_id": "half a scorecard"}', encoding="utf-8")
+    latest = latest_scorecard(tmp_path)
+    assert latest is not None
+    assert latest.run_id == OLDER_RUN_ID

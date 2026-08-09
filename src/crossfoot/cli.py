@@ -1,7 +1,6 @@
 """Crossfoot command line interface."""
 
 import asyncio
-import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -44,6 +43,14 @@ CASSETTE_DIR = Path("tests/fixtures/cassettes")
 COST_DB = DEFAULT_DATA_DIR / "costs.db"
 RUN_STATE_DB = DEFAULT_DATA_DIR / "runstate.db"
 RESPONSE_CACHE_DB = DEFAULT_DATA_DIR / "llm_cache.db"
+REVIEW_DB = DEFAULT_DATA_DIR / "crossfoot.db"
+CROPS_ROOT = DEFAULT_DATA_DIR / "crops"
+
+SERVE_HOST = "127.0.0.1"
+DEFAULT_PORT = 8000
+# uvicorn's reloader re-imports the app in a worker process, so it needs an
+# import string rather than the object this command built.
+RELOAD_TARGET = "crossfoot.api.app:default_app"
 
 # Details for the documents this command finishes without extracting. Both are
 # properties of the document, so both are final and both reach the output file.
@@ -315,6 +322,37 @@ def calibrate(
         )
 
 
+@app.command()
+def serve(
+    dataset: Annotated[
+        Path, typer.Option(help="Dataset directory the review database is built from.")
+    ] = DEFAULT_DATASET_DIR,
+    port: Annotated[int, typer.Option(help="Port to listen on.")] = DEFAULT_PORT,
+    reload: Annotated[bool, typer.Option(help="Restart when source files change.")] = False,
+) -> None:
+    """Build the review database if it is absent, then serve the API and the built frontend."""
+    import uvicorn
+
+    from crossfoot.api.app import create_app, mount_frontend
+    from crossfoot.ingest_db import build_database
+
+    if not REVIEW_DB.is_file():
+        counts = build_database(
+            dataset_dir=dataset, db_path=REVIEW_DB, extractions_dir=EXTRACTIONS_DIR, cost_db=COST_DB
+        )
+        typer.echo(
+            f"Built {REVIEW_DB}: {counts.documents} documents, {counts.fields} fields,"
+            f" {counts.exceptions} exceptions, {counts.llm_calls} ledger rows"
+        )
+    if reload:
+        uvicorn.run(RELOAD_TARGET, factory=True, reload=True, host=SERVE_HOST, port=port)
+        return
+    api = create_app(db_path=REVIEW_DB, crops_root=CROPS_ROOT, scorecards_dir=SCORECARDS_DIR)
+    if not mount_frontend(api):
+        typer.echo("No built frontend found; serving the API only. Run npm run build in frontend/.")
+    uvicorn.run(api, host=SERVE_HOST, port=port)
+
+
 async def _extract_split(
     dataset: Path, split: SplitName, mode: LlmMode, resume: bool, concurrency: int
 ) -> ExtractCounts:
@@ -475,18 +513,17 @@ async def _extract_split(
 
 
 def _run_id(split: SplitName, config_hash: str) -> str:
-    """One id per (split, dataset), so extract and calibrate agree on the file."""
-    return f"extract-{split}-{config_hash[:8]}"
+    """One id per (split, dataset), so extract, calibrate, and serve agree on the file."""
+    from crossfoot.ingest_db import extraction_run_id
+
+    return extraction_run_id(split, config_hash)
 
 
 def _saved_extractions(config_hash: str, split: SplitName) -> list["ExtractedDocument"] | None:
     """Documents a live extract run wrote for this split, or None when absent."""
-    from crossfoot.models.extraction import ExtractedDocument
+    from crossfoot.ingest_db import saved_extractions
 
-    path = EXTRACTIONS_DIR / f"{_run_id(split, config_hash)}.json"
-    if not path.is_file():
-        return None
-    return [ExtractedDocument.model_validate(item) for item in json.loads(path.read_text("utf-8"))]
+    return saved_extractions(EXTRACTIONS_DIR, _run_id(split, config_hash))
 
 
 def _labelled_fields(

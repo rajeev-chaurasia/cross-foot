@@ -1,0 +1,91 @@
+-- The review database `crossfoot serve` materializes, column for column as
+-- docs/contracts-phase3.md names it, plus the three additions the same document
+-- binds: fields.signals holding the FieldSignals JSON, exceptions.resolution and
+-- exceptions.resolved_at, and phase 2's llm_calls living in the same file.
+
+CREATE TABLE IF NOT EXISTS documents (
+    doc_id TEXT PRIMARY KEY,
+    file_path TEXT NOT NULL,
+    doc_type TEXT,
+    quality_tier TEXT NOT NULL,
+    route TEXT NOT NULL,
+    split TEXT,
+    error_kind TEXT
+);
+
+CREATE TABLE IF NOT EXISTS fields (
+    field_id TEXT PRIMARY KEY,
+    doc_id TEXT NOT NULL REFERENCES documents(doc_id),
+    line_no INTEGER,
+    name TEXT NOT NULL,
+    family TEXT NOT NULL,
+    raw_text TEXT,
+    value TEXT,
+    value_cents INTEGER,
+    value_date TEXT,
+    source TEXT NOT NULL,
+    crop_kind TEXT NOT NULL,
+    page INTEGER,
+    x0 REAL,
+    y0 REAL,
+    x1 REAL,
+    y1 REAL,
+    confidence REAL NOT NULL,
+    status TEXT NOT NULL,
+    signals TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS exceptions (
+    exception_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    exception_type TEXT NOT NULL,
+    doc_id TEXT,
+    statement_line_no INTEGER,
+    ledger_entry_id TEXT,
+    match_key TEXT,
+    statement_amount_cents INTEGER,
+    ledger_amount_cents INTEGER,
+    dollar_impact_cents INTEGER NOT NULL,
+    memo_amount_cents INTEGER NOT NULL DEFAULT 0,
+    explanation TEXT NOT NULL,
+    status TEXT NOT NULL,
+    detected_at TEXT NOT NULL,
+    resolution TEXT,
+    resolved_at TEXT
+);
+
+-- Append only: a correction adds a row and never rewrites one, so the model's
+-- own reading stays recoverable and the chain replays in insertion order.
+CREATE TABLE IF NOT EXISTS corrections (
+    correction_id TEXT PRIMARY KEY,
+    field_id TEXT NOT NULL REFERENCES fields(field_id),
+    old_value TEXT,
+    new_value TEXT NOT NULL,
+    reviewer TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS llm_calls (
+    call_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    doc_id TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_tokens INTEGER NOT NULL,
+    completion_tokens INTEGER NOT NULL,
+    total_tokens INTEGER NOT NULL,
+    cached INTEGER NOT NULL,
+    latency_ms INTEGER NOT NULL,
+    http_status INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    actual_cost_microusd INTEGER NOT NULL,
+    list_price_microusd INTEGER NOT NULL
+);
+
+-- The queue's total order, so paging reads one index rather than sorting a scan.
+CREATE INDEX IF NOT EXISTS fields_queue ON fields (confidence, field_id);
+CREATE INDEX IF NOT EXISTS fields_doc_line ON fields (doc_id, line_no);
+CREATE INDEX IF NOT EXISTS corrections_field ON corrections (field_id);
+CREATE INDEX IF NOT EXISTS exceptions_status ON exceptions (status);
