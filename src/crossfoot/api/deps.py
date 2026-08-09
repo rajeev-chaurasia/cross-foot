@@ -31,6 +31,10 @@ class ApiPaths:
     db_path: Path
     crops_root: Path
     scorecards_dir: Path
+    # Where the scans themselves live. A crop is rendered from the source
+    # document on the first request for it, and `documents.file_path` is
+    # relative to this directory, so the API cannot find a page without it.
+    dataset_dir: Path
 
 
 def api_paths(request: Request) -> ApiPaths:

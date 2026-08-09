@@ -50,6 +50,7 @@ _ITEM_COLUMNS = f"""
     {_EFFECTIVE_VALUE.format(alias="f")} AS value,
     f.confidence AS confidence,
     f.status AS status,
+    f.crop_kind AS crop_kind,
     f.signals AS signals
 """
 

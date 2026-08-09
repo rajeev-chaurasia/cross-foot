@@ -92,6 +92,54 @@
           "title": "CostCell",
           "type": "object"
         },
+        "CropKind": {
+          "enum": [
+            "exact_bbox",
+            "row_band",
+            "full_page"
+          ],
+          "title": "CropKind",
+          "type": "string"
+        },
+        "CropUnavailable": {
+          "description": "The typed answer when a crop cannot be rendered, so the queue shows the value alone.\n\nA corrupted scan is a fact about the document, not a server fault, and the\nreviewer still has to be able to work the field, so it is this rather than a\n500 or a bare broken image.",
+          "properties": {
+            "detail": {
+              "title": "Detail",
+              "type": "string"
+            },
+            "doc_id": {
+              "title": "Doc Id",
+              "type": "string"
+            },
+            "field_id": {
+              "title": "Field Id",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/components/schemas/CropUnavailableReason"
+            }
+          },
+          "required": [
+            "doc_id",
+            "field_id",
+            "reason",
+            "detail"
+          ],
+          "title": "CropUnavailable",
+          "type": "object"
+        },
+        "CropUnavailableReason": {
+          "description": "Why a field that exists still has no pixels beside it.",
+          "enum": [
+            "source_missing",
+            "source_unreadable",
+            "source_unreachable",
+            "page_missing"
+          ],
+          "title": "CropUnavailableReason",
+          "type": "string"
+        },
         "DocType": {
           "enum": [
             "parts_statement",
@@ -786,6 +834,9 @@
               "title": "Confidence",
               "type": "number"
             },
+            "crop_kind": {
+              "$ref": "#/components/schemas/CropKind"
+            },
             "crop_url": {
               "title": "Crop Url",
               "type": "string"
@@ -865,6 +916,7 @@
             "confidence",
             "status",
             "crop_url",
+            "crop_kind",
             "signals",
             "document",
             "neighbors"
@@ -1119,7 +1171,7 @@
     "paths": {
       "/api/crops/{doc_id}/{field_id}.png": {
         "get": {
-          "description": "The cached crop for one field, or 400 for a segment that leaves the crop root.",
+          "description": "The crop for one field, rendered on the first request and cached after it.\n\nA segment that leaves the crop root is a 400 and never a file read.",
           "operationId": "crop_api_crops__doc_id___field_id__png_get",
           "parameters": [
             {
@@ -1146,7 +1198,7 @@
               "content": {
                 "image/png": {}
               },
-              "description": "The cached crop."
+              "description": "The crop."
             },
             "422": {
               "content": {
@@ -1157,6 +1209,16 @@
                 }
               },
               "description": "Validation Error"
+            },
+            "424": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CropUnavailable"
+                  }
+                }
+              },
+              "description": "The field exists but its source document cannot be rendered."
             }
           },
           "summary": "Crop",

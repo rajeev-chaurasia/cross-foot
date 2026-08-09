@@ -32,6 +32,10 @@ MIN_INK_WIDTH_FRACTION = 0.02
 MIN_STRIPE_HEIGHT_PX = 2
 # Bands are padded by one row of their own height on each side.
 BAND_PAD_ROWS = 1
+# A review crop is read by a human on screen, so an exact box is opened out by
+# this share of the page's shorter edge on every side. Flush against the value
+# there is no context, and the reader cannot tell a total from a line amount.
+REVIEW_PAD_FRACTION = 0.012
 
 Image = npt.NDArray[np.uint8]
 
@@ -100,6 +104,23 @@ def region_for(
     return page, CropKind.FULL_PAGE
 
 
+def review_region(bbox: BBox | None, image: Image) -> tuple[PixelBox, CropKind]:
+    """The region a reviewer sees: the padded value box, or the whole page under it.
+
+    Separate from `region_for` because the two answer different questions. The
+    pipeline crops flush to the word boxes it measured; a human needs margin
+    around the value, and needs an image even when there are no coordinates at
+    all, which is what makes the full page the floor rather than a failure.
+    """
+    page = full_page(image)
+    if bbox is None:
+        return page, CropKind.FULL_PAGE
+    exact = _to_pixels(bbox, image).intersect(page)
+    if exact.is_empty():
+        return page, CropKind.FULL_PAGE
+    return _padded(exact, image).intersect(page), CropKind.EXACT_BBOX
+
+
 def full_page(image: Image) -> PixelBox:
     height, width = image.shape[:2]
     return PixelBox(left=0, top=0, right=int(width), bottom=int(height))
@@ -163,6 +184,15 @@ def _refined(band: PixelBox, bbox: BBox | None, image: Image) -> PixelBox:
         return band  # discarded silently: an unanchored hint refines nothing
     narrowed = band.intersect(hinted)
     return band if narrowed.is_empty() else narrowed
+
+
+def _padded(box: PixelBox, image: Image) -> PixelBox:
+    """Open a box out by REVIEW_PAD_FRACTION of the page's shorter edge, isotropically."""
+    height, width = image.shape[:2]
+    pad = max(1, round(min(int(height), int(width)) * REVIEW_PAD_FRACTION))
+    return PixelBox(
+        left=box.left - pad, top=box.top - pad, right=box.right + pad, bottom=box.bottom + pad
+    )
 
 
 def _to_pixels(bbox: BBox, image: Image) -> PixelBox:

@@ -354,7 +354,12 @@ def serve(
     if reload:
         uvicorn.run(RELOAD_TARGET, factory=True, reload=True, host=SERVE_HOST, port=port)
         return
-    api = create_app(db_path=REVIEW_DB, crops_root=CROPS_ROOT, scorecards_dir=SCORECARDS_DIR)
+    api = create_app(
+        db_path=REVIEW_DB,
+        crops_root=CROPS_ROOT,
+        scorecards_dir=SCORECARDS_DIR,
+        dataset_dir=dataset,
+    )
     if not mount_frontend(api):
         typer.echo("No built frontend found; serving the API only. Run npm run build in frontend/.")
     uvicorn.run(api, host=SERVE_HOST, port=port)

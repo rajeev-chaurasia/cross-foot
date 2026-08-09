@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime
+from enum import StrEnum
 from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict
 
 from crossfoot.api.deps import API_PREFIX, CROP_PATH_TEMPLATE
 from crossfoot.constants import (
+    CropKind,
     DocType,
     ExtractionRoute,
     FieldFamily,
@@ -109,6 +111,12 @@ class DocumentSummary(BaseModel):
 class ReviewItemDetail(ReviewItem):
     """The queue item plus everything a reviewer needs to judge it in one screen."""
 
+    # How the value was located on the page, so the crop panel can caption what
+    # the reader is looking at instead of leaving them to guess whether a whole
+    # page means "here it is" or "we could not find it". This is what the
+    # extractor recorded; a stored box that turns out to be degenerate still
+    # renders as the full page underneath it.
+    crop_kind: CropKind
     signals: FieldSignals
     document: DocumentSummary
     neighbors: tuple[ReviewItem, ...]
@@ -119,10 +127,36 @@ class ReviewItemDetail(ReviewItem):
     ) -> ReviewItemDetail:
         return cls(
             **ReviewItem.from_row(row).model_dump(),
+            crop_kind=CropKind(row["crop_kind"]),
             signals=FieldSignals.model_validate_json(str(row["signals"])),
             document=DocumentSummary.from_row(document),
             neighbors=tuple(ReviewItem.from_row(neighbor) for neighbor in neighbors),
         )
+
+
+class CropUnavailableReason(StrEnum):
+    """Why a field that exists still has no pixels beside it."""
+
+    SOURCE_MISSING = "source_missing"
+    SOURCE_UNREADABLE = "source_unreadable"
+    SOURCE_UNREACHABLE = "source_unreachable"
+    PAGE_MISSING = "page_missing"
+
+
+class CropUnavailable(BaseModel):
+    """The typed answer when a crop cannot be rendered, so the queue shows the value alone.
+
+    A corrupted scan is a fact about the document, not a server fault, and the
+    reviewer still has to be able to work the field, so it is this rather than a
+    500 or a bare broken image.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    doc_id: str
+    field_id: str
+    reason: CropUnavailableReason
+    detail: str
 
 
 class CorrectionRequest(BaseModel):

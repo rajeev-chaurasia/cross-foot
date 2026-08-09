@@ -28,19 +28,36 @@ API_DESCRIPTION = (
 DEFAULT_DB_PATH = Path("data/crossfoot.db")
 DEFAULT_CROPS_ROOT = Path("data/crops")
 DEFAULT_SCORECARDS_DIR = Path("scorecards")
+DEFAULT_DATASET_DIR = Path("data/dataset")
 FRONTEND_DIST = Path("frontend/dist")
 
 FRONTEND_MOUNT = "/"
 FRONTEND_NAME = "frontend"
 
 
-def create_app(*, db_path: Path, crops_root: Path, scorecards_dir: Path) -> FastAPI:
-    """The API over a materialized review database."""
+def create_app(
+    *,
+    db_path: Path,
+    crops_root: Path,
+    scorecards_dir: Path,
+    dataset_dir: Path = DEFAULT_DATASET_DIR,
+) -> FastAPI:
+    """The API over a materialized review database.
+
+    `dataset_dir` defaults rather than being required because the first three
+    arguments are the frozen contract signature; it is where a crop that has not
+    been rendered yet finds its page.
+    """
     app = FastAPI(title=API_TITLE, description=API_DESCRIPTION, version=__version__)
     setattr(
         app.state,
         STATE_ATTRIBUTE,
-        ApiPaths(db_path=db_path, crops_root=crops_root, scorecards_dir=scorecards_dir),
+        ApiPaths(
+            db_path=db_path,
+            crops_root=crops_root,
+            scorecards_dir=scorecards_dir,
+            dataset_dir=dataset_dir,
+        ),
     )
     # Idempotent, and it is what lets a database materialized by an older build
     # still serve rather than fail on a column it never had.
@@ -68,6 +85,7 @@ def default_app() -> FastAPI:
         db_path=DEFAULT_DB_PATH,
         crops_root=DEFAULT_CROPS_ROOT,
         scorecards_dir=DEFAULT_SCORECARDS_DIR,
+        dataset_dir=DEFAULT_DATASET_DIR,
     )
     mount_frontend(app)
     return app
