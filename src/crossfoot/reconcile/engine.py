@@ -107,7 +107,8 @@ def reconcile(
         else:
             records.missing_from_ledger(line)
     for entry in unconsumed:
-        records.missing_from_statement(entry)
+        if _expected_on_statement(doc, entry):
+            records.missing_from_statement(entry)
     return ReconciliationResult(
         matches=tuple(_matched_line(doc, pairing, names) for pairing in pairings),
         exceptions=tuple(records.emitted),
@@ -115,17 +116,35 @@ def reconcile(
 
 
 def _blocked(doc: StatementDoc, book: LedgerBook) -> tuple[LedgerEntry, ...]:
-    """Candidate entries: same dealer, the schedule for the doc type, near the period."""
-    schedule = DOC_TYPE_SCHEDULES[doc.doc_type]
+    """Candidate entries: same dealer, the schedule for the doc type, near the period.
+
+    Deliberately wider than the period so a line whose date crossed the boundary
+    can still find its entry. Widening candidacy must not widen expectation.
+    """
     grace = timedelta(days=BLOCKING_GRACE_DAYS)
     earliest, latest = doc.period_start - grace, doc.period_end + grace
     return tuple(
         entry
         for entry in book.entries
-        if entry.dealer_id == doc.dealer_id
-        and entry.schedule is schedule
-        and earliest <= entry.post_date <= latest
+        if _settled_by(doc, entry) and earliest <= entry.post_date <= latest
     )
+
+
+def _expected_on_statement(doc: StatementDoc, entry: LedgerEntry) -> bool:
+    """Whether the statement should have carried this entry as a line of its own.
+
+    Narrower than blocking on purpose: a statement settles the open items of its
+    own schedule, for its own dealer, that posted inside its own period. An entry
+    from a neighbouring period belongs on that period's statement, so its absence
+    here is not an exception. Blocking's plus or minus 60 day grace exists only to
+    keep timing differences matchable and carries no expectation of its own.
+    """
+    return _settled_by(doc, entry) and doc.period_start <= entry.post_date <= doc.period_end
+
+
+def _settled_by(doc: StatementDoc, entry: LedgerEntry) -> bool:
+    """The dealer and the schedule the doc type settles, without any date test."""
+    return entry.dealer_id == doc.dealer_id and entry.schedule is DOC_TYPE_SCHEDULES[doc.doc_type]
 
 
 def _assign(
@@ -324,7 +343,7 @@ class _Records:
         """What is wrong with a matched line, independent of which pass matched it."""
         line, entry = pairing.line, pairing.entry
         if line.amount_cents == entry.amount_cents:
-            if not self._within_period(entry.post_date):
+            if self._straddles_period(line.line_date, entry.post_date):
                 self._timing_difference(pairing)
             return
         if self.doc.doc_type in PAYMENT_CONTEXTS and line.amount_cents < entry.amount_cents:
@@ -354,21 +373,33 @@ class _Records:
             ExceptionType.MISSING_FROM_STATEMENT,
             entry=entry,
             dollar_impact_cents=-entry.amount_cents,
-            explanation="blocked ledger entry never appeared on the statement",
+            explanation="ledger entry posted in this period never appeared on the statement",
         )
 
-    def _within_period(self, post_date: date) -> bool:
-        return self.doc.period_start <= post_date <= self.doc.period_end
+    def _within_period(self, day: date) -> bool:
+        return self.doc.period_start <= day <= self.doc.period_end
+
+    def _straddles_period(self, line_date: date, post_date: date) -> bool:
+        """One side inside the period and the other outside it.
+
+        The pair is the evidence, not either date alone: the transaction is real
+        and agrees on amount, but the two books recognised it in different
+        periods. Which side sits outside says nothing about whether the timing
+        slipped, so both directions count.
+        """
+        return self._within_period(line_date) is not self._within_period(post_date)
 
     def _timing_difference(self, pairing: Pairing) -> None:
         self._add(
             ExceptionType.TIMING_DIFFERENCE,
             line=pairing.line,
             entry=pairing.entry,
+            # Frozen contract: no dollar impact, the amount travels as a memo.
             dollar_impact_cents=0,
             memo_amount_cents=pairing.line.amount_cents,
             explanation=(
-                f"ledger posted {pairing.entry.post_date.isoformat()}, outside the period"
+                f"line dated {pairing.line.line_date.isoformat()} and ledger posted "
+                f"{pairing.entry.post_date.isoformat()} fall in different periods"
             ),
         )
 
