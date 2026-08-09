@@ -101,6 +101,44 @@ overlay. Every figure caption names its scorecard run id.
   absent, then serves the API and the built frontend.
 - `crossfoot plots [--scorecard PATH]` regenerates the figures for a scorecard.
 
+## Clarifications (binding, added 2026-08-09 after test-writer review)
+
+Schema gaps the first draft left open:
+
+- `fields` gains a `signals` TEXT column holding the `FieldSignals` JSON. The detail
+  route has to show the breakdown that produced a confidence, and a breakdown cannot be
+  recomputed from a row that never stored it.
+- `exceptions` gains `resolution TEXT` and `resolved_at TEXT`, both null until resolved.
+  The frozen `ExceptionRecord` model is unchanged; this is storage, not a model change.
+- Phase 2's `llm_calls` table lives in the same `crossfoot.db`, unchanged in shape. The
+  summary tile needs it and there is no reason for a second database file.
+
+Semantics the first draft left ambiguous:
+
+- Queue with no `status` filter means every field, not just NEEDS_REVIEW. Otherwise the
+  `status` parameter has nothing to narrow.
+- `min_impact_cents` compares the same way the ranking sorts, on absolute value, so a
+  -60000 exception clears a 50000 floor. A timing difference at zero impact still lists
+  under a floor of zero.
+- `gross_dollars_at_risk_cents` sums the absolute impact of OPEN exceptions only.
+- `cost_per_document_microusd` divides ledger list price by the documents whose route is
+  not UNPROCESSABLE, since an unreadable file cost nothing to extract.
+- A correction's `old_value` is the value it replaced, so a chain of corrections
+  reconstructs in order. The `fields` row is never mutated by a correction.
+
+Crop containment, stated precisely:
+
+- Single segment hostile forms (`..`, `..\outside`, a drive letter, a UNC or device
+  prefix, a leading separator, a field_id that climbs out) are rejected with 400.
+- Forms carrying percent encoded separators decode into extra path segments before
+  routing, so they may surface as 404 rather than 400. Either is acceptable.
+- In every case, bytes from outside the crop root must never appear in a response. That
+  is the assertion that matters; the status code is secondary.
+
+The OpenAPI snapshot cannot be generated until `crossfoot.api` imports. The first run
+after the implementation lands creates it, and maintainer review of that diff is the
+freeze.
+
 ## Determinism and honesty rules
 
 - The review queue order is a total order: ascending confidence, then field_id. Two
