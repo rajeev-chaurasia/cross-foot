@@ -1,0 +1,1469 @@
+{
+  "run_id": "20260809T184447-73713a7",
+  "created_at": "2026-08-09T18:44:47.847929Z",
+  "git_sha": "73713a7",
+  "dataset_config_hash": "e14a532c4bcaff5ee56bda0841b18db68855990c0f683fac63980771f3523343",
+  "master_seed": 42,
+  "split": "test",
+  "models_used": [],
+  "documents_total": 52,
+  "documents_processed": 47,
+  "documents_unprocessable": 5,
+  "field_accuracy": [
+    {
+      "field_family": "amount",
+      "quality_tier": "clean_digital",
+      "fields_in_truth": 214,
+      "fields_expected": 214,
+      "fields_extracted": 206,
+      "fields_spurious": 0,
+      "correct_canonical": 205,
+      "correct_raw": 205
+    },
+    {
+      "field_family": "amount",
+      "quality_tier": "scan_light",
+      "fields_in_truth": 139,
+      "fields_expected": 139,
+      "fields_extracted": 84,
+      "fields_spurious": 0,
+      "correct_canonical": 84,
+      "correct_raw": 84
+    },
+    {
+      "field_family": "amount",
+      "quality_tier": "scan_heavy",
+      "fields_in_truth": 83,
+      "fields_expected": 83,
+      "fields_extracted": 50,
+      "fields_spurious": 0,
+      "correct_canonical": 33,
+      "correct_raw": 33
+    },
+    {
+      "field_family": "amount",
+      "quality_tier": "csv",
+      "fields_in_truth": 68,
+      "fields_expected": 53,
+      "fields_extracted": 53,
+      "fields_spurious": 0,
+      "correct_canonical": 53,
+      "correct_raw": 53
+    },
+    {
+      "field_family": "amount",
+      "quality_tier": "xlsx",
+      "fields_in_truth": 43,
+      "fields_expected": 37,
+      "fields_extracted": 0,
+      "fields_spurious": 0,
+      "correct_canonical": 0,
+      "correct_raw": 0
+    },
+    {
+      "field_family": "date",
+      "quality_tier": "clean_digital",
+      "fields_in_truth": 183,
+      "fields_expected": 183,
+      "fields_extracted": 179,
+      "fields_spurious": 0,
+      "correct_canonical": 178,
+      "correct_raw": 178
+    },
+    {
+      "field_family": "date",
+      "quality_tier": "scan_light",
+      "fields_in_truth": 118,
+      "fields_expected": 118,
+      "fields_extracted": 37,
+      "fields_spurious": 0,
+      "correct_canonical": 37,
+      "correct_raw": 37
+    },
+    {
+      "field_family": "date",
+      "quality_tier": "scan_heavy",
+      "fields_in_truth": 72,
+      "fields_expected": 72,
+      "fields_extracted": 29,
+      "fields_spurious": 0,
+      "correct_canonical": 26,
+      "correct_raw": 26
+    },
+    {
+      "field_family": "date",
+      "quality_tier": "csv",
+      "fields_in_truth": 59,
+      "fields_expected": 53,
+      "fields_extracted": 53,
+      "fields_spurious": 0,
+      "correct_canonical": 53,
+      "correct_raw": 53
+    },
+    {
+      "field_family": "date",
+      "quality_tier": "xlsx",
+      "fields_in_truth": 37,
+      "fields_expected": 37,
+      "fields_extracted": 0,
+      "fields_spurious": 0,
+      "correct_canonical": 0,
+      "correct_raw": 0
+    },
+    {
+      "field_family": "reference",
+      "quality_tier": "clean_digital",
+      "fields_in_truth": 308,
+      "fields_expected": 308,
+      "fields_extracted": 296,
+      "fields_spurious": 0,
+      "correct_canonical": 287,
+      "correct_raw": 287
+    },
+    {
+      "field_family": "reference",
+      "quality_tier": "scan_light",
+      "fields_in_truth": 187,
+      "fields_expected": 187,
+      "fields_extracted": 106,
+      "fields_spurious": 0,
+      "correct_canonical": 100,
+      "correct_raw": 100
+    },
+    {
+      "field_family": "reference",
+      "quality_tier": "scan_heavy",
+      "fields_in_truth": 142,
+      "fields_expected": 142,
+      "fields_extracted": 68,
+      "fields_spurious": 0,
+      "correct_canonical": 13,
+      "correct_raw": 13
+    },
+    {
+      "field_family": "reference",
+      "quality_tier": "csv",
+      "fields_in_truth": 96,
+      "fields_expected": 90,
+      "fields_extracted": 90,
+      "fields_spurious": 0,
+      "correct_canonical": 90,
+      "correct_raw": 90
+    },
+    {
+      "field_family": "reference",
+      "quality_tier": "xlsx",
+      "fields_in_truth": 62,
+      "fields_expected": 62,
+      "fields_extracted": 0,
+      "fields_spurious": 0,
+      "correct_canonical": 0,
+      "correct_raw": 0
+    },
+    {
+      "field_family": "text",
+      "quality_tier": "clean_digital",
+      "fields_in_truth": 162,
+      "fields_expected": 162,
+      "fields_extracted": 158,
+      "fields_spurious": 0,
+      "correct_canonical": 151,
+      "correct_raw": 109
+    },
+    {
+      "field_family": "text",
+      "quality_tier": "scan_light",
+      "fields_in_truth": 104,
+      "fields_expected": 104,
+      "fields_extracted": 61,
+      "fields_spurious": 0,
+      "correct_canonical": 61,
+      "correct_raw": 37
+    },
+    {
+      "field_family": "text",
+      "quality_tier": "scan_heavy",
+      "fields_in_truth": 64,
+      "fields_expected": 64,
+      "fields_extracted": 38,
+      "fields_spurious": 0,
+      "correct_canonical": 38,
+      "correct_raw": 26
+    },
+    {
+      "field_family": "text",
+      "quality_tier": "csv",
+      "fields_in_truth": 53,
+      "fields_expected": 53,
+      "fields_extracted": 53,
+      "fields_spurious": 0,
+      "correct_canonical": 53,
+      "correct_raw": 53
+    },
+    {
+      "field_family": "text",
+      "quality_tier": "xlsx",
+      "fields_in_truth": 33,
+      "fields_expected": 33,
+      "fields_extracted": 0,
+      "fields_spurious": 0,
+      "correct_canonical": 0,
+      "correct_raw": 0
+    }
+  ],
+  "calibration": [
+    {
+      "field_family": "amount",
+      "mean_confidence": 0.638587988101572,
+      "empirical_accuracy": 0.8461538461538461,
+      "count": 39
+    },
+    {
+      "field_family": "amount",
+      "mean_confidence": 0.8262161958910826,
+      "empirical_accuracy": 0.7692307692307693,
+      "count": 39
+    },
+    {
+      "field_family": "amount",
+      "mean_confidence": 0.9280324014605503,
+      "empirical_accuracy": 0.9230769230769231,
+      "count": 39
+    },
+    {
+      "field_family": "amount",
+      "mean_confidence": 0.9559608699578404,
+      "empirical_accuracy": 1.0,
+      "count": 40
+    },
+    {
+      "field_family": "amount",
+      "mean_confidence": 0.9805803488877283,
+      "empirical_accuracy": 1.0,
+      "count": 39
+    },
+    {
+      "field_family": "amount",
+      "mean_confidence": 0.9896470764758871,
+      "empirical_accuracy": 1.0,
+      "count": 39
+    },
+    {
+      "field_family": "amount",
+      "mean_confidence": 0.9958948580802203,
+      "empirical_accuracy": 1.0,
+      "count": 40
+    },
+    {
+      "field_family": "amount",
+      "mean_confidence": 0.9970854105905662,
+      "empirical_accuracy": 1.0,
+      "count": 39
+    },
+    {
+      "field_family": "amount",
+      "mean_confidence": 0.9971459687156539,
+      "empirical_accuracy": 1.0,
+      "count": 39
+    },
+    {
+      "field_family": "amount",
+      "mean_confidence": 0.9972177569502774,
+      "empirical_accuracy": 1.0,
+      "count": 40
+    },
+    {
+      "field_family": "date",
+      "mean_confidence": 0.9345263802225715,
+      "empirical_accuracy": 1.0,
+      "count": 29
+    },
+    {
+      "field_family": "date",
+      "mean_confidence": 0.9353364924920384,
+      "empirical_accuracy": 1.0,
+      "count": 30
+    },
+    {
+      "field_family": "date",
+      "mean_confidence": 0.935550013528366,
+      "empirical_accuracy": 1.0,
+      "count": 30
+    },
+    {
+      "field_family": "date",
+      "mean_confidence": 0.9361453411149465,
+      "empirical_accuracy": 1.0,
+      "count": 30
+    },
+    {
+      "field_family": "date",
+      "mean_confidence": 0.936326527771732,
+      "empirical_accuracy": 1.0,
+      "count": 30
+    },
+    {
+      "field_family": "date",
+      "mean_confidence": 0.9367766101690655,
+      "empirical_accuracy": 0.9655172413793104,
+      "count": 29
+    },
+    {
+      "field_family": "date",
+      "mean_confidence": 0.9417453851035168,
+      "empirical_accuracy": 1.0,
+      "count": 30
+    },
+    {
+      "field_family": "date",
+      "mean_confidence": 0.9682566623190645,
+      "empirical_accuracy": 0.9666666666666667,
+      "count": 30
+    },
+    {
+      "field_family": "date",
+      "mean_confidence": 0.9844863887608988,
+      "empirical_accuracy": 0.9333333333333333,
+      "count": 30
+    },
+    {
+      "field_family": "date",
+      "mean_confidence": 0.9866639125845946,
+      "empirical_accuracy": 1.0,
+      "count": 30
+    },
+    {
+      "field_family": "reference",
+      "mean_confidence": 0.5968359722705718,
+      "empirical_accuracy": 0.2857142857142857,
+      "count": 56
+    },
+    {
+      "field_family": "reference",
+      "mean_confidence": 0.8018444548419403,
+      "empirical_accuracy": 0.9821428571428571,
+      "count": 56
+    },
+    {
+      "field_family": "reference",
+      "mean_confidence": 0.8275209660858736,
+      "empirical_accuracy": 0.7321428571428571,
+      "count": 56
+    },
+    {
+      "field_family": "reference",
+      "mean_confidence": 0.8397690781945176,
+      "empirical_accuracy": 0.8035714285714286,
+      "count": 56
+    },
+    {
+      "field_family": "reference",
+      "mean_confidence": 0.850907145601464,
+      "empirical_accuracy": 1.0,
+      "count": 56
+    },
+    {
+      "field_family": "reference",
+      "mean_confidence": 0.8584460642560308,
+      "empirical_accuracy": 0.9821428571428571,
+      "count": 56
+    },
+    {
+      "field_family": "reference",
+      "mean_confidence": 0.864425394031557,
+      "empirical_accuracy": 0.9821428571428571,
+      "count": 56
+    },
+    {
+      "field_family": "reference",
+      "mean_confidence": 0.8672886421494788,
+      "empirical_accuracy": 0.9821428571428571,
+      "count": 56
+    },
+    {
+      "field_family": "reference",
+      "mean_confidence": 0.9258438740391345,
+      "empirical_accuracy": 1.0,
+      "count": 56
+    },
+    {
+      "field_family": "reference",
+      "mean_confidence": 0.9783432026960693,
+      "empirical_accuracy": 1.0,
+      "count": 56
+    },
+    {
+      "field_family": "text",
+      "mean_confidence": 0.8817258391246149,
+      "empirical_accuracy": 1.0,
+      "count": 31
+    },
+    {
+      "field_family": "text",
+      "mean_confidence": 0.8917880061853959,
+      "empirical_accuracy": 1.0,
+      "count": 31
+    },
+    {
+      "field_family": "text",
+      "mean_confidence": 0.8948595140136136,
+      "empirical_accuracy": 1.0,
+      "count": 31
+    },
+    {
+      "field_family": "text",
+      "mean_confidence": 0.8993311149290062,
+      "empirical_accuracy": 1.0,
+      "count": 31
+    },
+    {
+      "field_family": "text",
+      "mean_confidence": 0.9008042865413898,
+      "empirical_accuracy": 0.9032258064516129,
+      "count": 31
+    },
+    {
+      "field_family": "text",
+      "mean_confidence": 0.9010280511348442,
+      "empirical_accuracy": 0.8709677419354839,
+      "count": 31
+    },
+    {
+      "field_family": "text",
+      "mean_confidence": 0.9014944968178945,
+      "empirical_accuracy": 1.0,
+      "count": 31
+    },
+    {
+      "field_family": "text",
+      "mean_confidence": 0.9020354167412142,
+      "empirical_accuracy": 1.0,
+      "count": 31
+    },
+    {
+      "field_family": "text",
+      "mean_confidence": 0.9559150477797037,
+      "empirical_accuracy": 1.0,
+      "count": 31
+    },
+    {
+      "field_family": "text",
+      "mean_confidence": 0.9771998314279365,
+      "empirical_accuracy": 1.0,
+      "count": 31
+    }
+  ],
+  "threshold_sweep": [
+    {
+      "field_family": "amount",
+      "threshold": 0.0,
+      "auto_accept_precision": 0.9614243323442137,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.025,
+      "auto_accept_precision": 0.9614243323442137,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.05,
+      "auto_accept_precision": 0.9614243323442137,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.075,
+      "auto_accept_precision": 0.9614243323442137,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.1,
+      "auto_accept_precision": 0.9614243323442137,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.125,
+      "auto_accept_precision": 0.9614243323442137,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.15,
+      "auto_accept_precision": 0.9614243323442137,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.175,
+      "auto_accept_precision": 0.9614243323442137,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.2,
+      "auto_accept_precision": 0.9614243323442137,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.225,
+      "auto_accept_precision": 0.9611940298507463,
+      "review_rate": 0.005934718100890191
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.25,
+      "auto_accept_precision": 0.9666666666666667,
+      "review_rate": 0.020771513353115778
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.275,
+      "auto_accept_precision": 0.9666666666666667,
+      "review_rate": 0.020771513353115778
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.3,
+      "auto_accept_precision": 0.9666666666666667,
+      "review_rate": 0.020771513353115778
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.325,
+      "auto_accept_precision": 0.9666666666666667,
+      "review_rate": 0.020771513353115778
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.35,
+      "auto_accept_precision": 0.9666666666666667,
+      "review_rate": 0.020771513353115778
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.375,
+      "auto_accept_precision": 0.9666666666666667,
+      "review_rate": 0.020771513353115778
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.4,
+      "auto_accept_precision": 0.9666666666666667,
+      "review_rate": 0.020771513353115778
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.425,
+      "auto_accept_precision": 0.9666666666666667,
+      "review_rate": 0.020771513353115778
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.45,
+      "auto_accept_precision": 0.9666666666666667,
+      "review_rate": 0.020771513353115778
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.475,
+      "auto_accept_precision": 0.9666666666666667,
+      "review_rate": 0.020771513353115778
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.5,
+      "auto_accept_precision": 0.9784615384615385,
+      "review_rate": 0.035608308605341255
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.525,
+      "auto_accept_precision": 0.9784615384615385,
+      "review_rate": 0.035608308605341255
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.55,
+      "auto_accept_precision": 0.9784615384615385,
+      "review_rate": 0.035608308605341255
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.575,
+      "auto_accept_precision": 0.9784615384615385,
+      "review_rate": 0.035608308605341255
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.6,
+      "auto_accept_precision": 0.9784615384615385,
+      "review_rate": 0.035608308605341255
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.625,
+      "auto_accept_precision": 0.9784615384615385,
+      "review_rate": 0.035608308605341255
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.65,
+      "auto_accept_precision": 0.9784615384615385,
+      "review_rate": 0.035608308605341255
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.675,
+      "auto_accept_precision": 0.9784615384615385,
+      "review_rate": 0.035608308605341255
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.7,
+      "auto_accept_precision": 0.976271186440678,
+      "review_rate": 0.12462908011869434
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.725,
+      "auto_accept_precision": 0.9761092150170648,
+      "review_rate": 0.13056379821958453
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.75,
+      "auto_accept_precision": 0.9761092150170648,
+      "review_rate": 0.13056379821958453
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.775,
+      "auto_accept_precision": 0.9759450171821306,
+      "review_rate": 0.13649851632047483
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.783432691078692,
+      "auto_accept_precision": 0.9963768115942029,
+      "review_rate": 0.18100890207715137
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.8,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.20178041543026703
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.825,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.20178041543026703
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.85,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.20178041543026703
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.875,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.20178041543026703
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.9,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.26409495548961426
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.925,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.314540059347181
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.95,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.41246290801186947
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.975,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.43026706231454004
+    },
+    {
+      "field_family": "amount",
+      "threshold": 0.783432691078692,
+      "auto_accept_precision": 0.9852941176470589,
+      "review_rate": 0.13486005089058528
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.0,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.025,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.05,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.075,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.1,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.125,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.15,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.175,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.2,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.225,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.25,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.275,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.3,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.325,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.35,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.375,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.4,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.425,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.45,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.475,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.5,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.525,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.55,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.575,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.6,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.625,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.65,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.675,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.7,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.725,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.75,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.775,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.8,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.825,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.85,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.875,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.9,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.925,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.9344769161550222,
+      "auto_accept_precision": 0.996031746031746,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.95,
+      "auto_accept_precision": 0.9833333333333333,
+      "review_rate": 0.7619047619047619
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.975,
+      "auto_accept_precision": 0.9833333333333333,
+      "review_rate": 0.7619047619047619
+    },
+    {
+      "field_family": "date",
+      "threshold": 0.9344769161550222,
+      "auto_accept_precision": 0.9865771812080537,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.0,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.025,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.05,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.075,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.1,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.125,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.15,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.175,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.2,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.225,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.25,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.275,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.3,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.325,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.35,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.375,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.4,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.425,
+      "auto_accept_precision": 0.9259259259259259,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.45,
+      "auto_accept_precision": 0.9297520661157025,
+      "review_rate": 0.004115226337448541
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.475,
+      "auto_accept_precision": 0.9554140127388535,
+      "review_rate": 0.030864197530864224
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.5,
+      "auto_accept_precision": 0.9554140127388535,
+      "review_rate": 0.030864197530864224
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.525,
+      "auto_accept_precision": 0.9554140127388535,
+      "review_rate": 0.030864197530864224
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.55,
+      "auto_accept_precision": 0.9554140127388535,
+      "review_rate": 0.030864197530864224
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.575,
+      "auto_accept_precision": 0.9554140127388535,
+      "review_rate": 0.030864197530864224
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.6,
+      "auto_accept_precision": 0.9554140127388535,
+      "review_rate": 0.030864197530864224
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.625,
+      "auto_accept_precision": 0.9554140127388535,
+      "review_rate": 0.030864197530864224
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.65,
+      "auto_accept_precision": 0.9554140127388535,
+      "review_rate": 0.030864197530864224
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.675,
+      "auto_accept_precision": 0.9554140127388535,
+      "review_rate": 0.030864197530864224
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.7,
+      "auto_accept_precision": 0.9594882729211087,
+      "review_rate": 0.034979423868312765
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.725,
+      "auto_accept_precision": 0.961456102783726,
+      "review_rate": 0.039094650205761305
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.75,
+      "auto_accept_precision": 0.962882096069869,
+      "review_rate": 0.057613168724279795
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.775,
+      "auto_accept_precision": 0.962882096069869,
+      "review_rate": 0.057613168724279795
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.8,
+      "auto_accept_precision": 0.9610983981693364,
+      "review_rate": 0.10082304526748975
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.825,
+      "auto_accept_precision": 0.9784688995215312,
+      "review_rate": 0.13991769547325106
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.8324780311446522,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.19547325102880664
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.85,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.30452674897119336
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.875,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.7798353909465021
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.9,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.7798353909465021
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.925,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.7798353909465021
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.95,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.8024691358024691
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.975,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.8024691358024691
+    },
+    {
+      "field_family": "reference",
+      "threshold": 0.8324780311446522,
+      "auto_accept_precision": 0.973753280839895,
+      "review_rate": 0.3196428571428571
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.0,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.025,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.05,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.075,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.1,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.125,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.15,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.175,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.2,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.225,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.25,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.275,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.3,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.325,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.35,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.375,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.4,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.425,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.45,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.475,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.5,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.525,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.55,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.575,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.6,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.625,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.65,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.675,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.7,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.725,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.75,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.775,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.8,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.825,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.85,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.875,
+      "auto_accept_precision": 0.9605734767025089,
+      "review_rate": 0.0
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.8819096577810704,
+      "auto_accept_precision": 0.984251968503937,
+      "review_rate": 0.08960573476702505
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.9,
+      "auto_accept_precision": 0.9907834101382489,
+      "review_rate": 0.2222222222222222
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.925,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.8064516129032258
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.95,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.8064516129032258
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.975,
+      "auto_accept_precision": 1.0,
+      "review_rate": 0.8064516129032258
+    },
+    {
+      "field_family": "text",
+      "threshold": 0.8819096577810704,
+      "auto_accept_precision": 0.976027397260274,
+      "review_rate": 0.058064516129032295
+    }
+  ],
+  "reconciliation": [],
+  "costs": [],
+  "notes": "Routed by file signature. Deterministic routes served: csv, digital_pdf. Confidence fit on train, thresholds chosen on calibration, reported on test: 1561 scored fields, 98.02% auto accept precision at 16.02% review."
+}

@@ -9,29 +9,41 @@ an UNPROCESSABLE result with a typed error and the loop continues.
 import logging
 import subprocess
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from crossfoot.confidence.signals import SignalContext
+from crossfoot.confidence.calibration import (
+    FIT_SPLIT,
+    THRESHOLD_SPLIT,
+    ConfidenceSample,
+    TrainingSample,
+    choose_thresholds,
+    fit_scorers,
+    reliability_bins,
+    sweep_point,
+)
+from crossfoot.confidence.scorer import LogisticModel
+from crossfoot.confidence.signals import SignalContext, attach_signals
 from crossfoot.constants import (
     ExtractionRoute,
+    FieldFamily,
     FieldName,
     IngestErrorKind,
     LineType,
     Provider,
     SplitName,
 )
-from crossfoot.evals.metrics import score_fields
+from crossfoot.evals.metrics import field_is_correct, score_fields
 from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
 from crossfoot.extraction.pdf_text import extract_pdf
 from crossfoot.extraction.router import route_file
 from crossfoot.extraction.tabular import extract_csv
-from crossfoot.models.extraction import ExtractedDocument, ExtractedField, IngestError
+from crossfoot.models.extraction import ExtractedDocument, ExtractedField, FieldSignals, IngestError
 from crossfoot.models.ledger import LedgerBook
 from crossfoot.models.manifest import DatasetManifest, ManifestRecord
-from crossfoot.models.scorecard import Scorecard
+from crossfoot.models.scorecard import CalibrationBin, Scorecard, ThresholdPoint
 from crossfoot.models.statement import StatementDoc, StatementLine
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,6 +57,13 @@ _GIT_SHA_FALLBACK = "unknown"
 _GIT_TIMEOUT_SECONDS = 10
 
 Extractor = Callable[[Path, str], ExtractedDocument]
+
+# The published sweep is a curve dense enough to read the shape of and short
+# enough to commit beside the numbers it explains. Thresholds run the whole
+# confidence range, because a review rate only means something against it.
+SWEEP_GRID_POINTS = 41
+
+LabelledField = tuple[FieldFamily, FieldSignals, bool]
 
 # Routes this offline runner can serve. The scanned tier needs a live vision
 # client, so `crossfoot extract` drives it and the notes record its absence.
@@ -98,6 +117,31 @@ class ExtractionRun:
 
     def total(self) -> int:
         return len(self.documents) + len(self.unprocessable) + sum(self.unserved.values())
+
+
+@dataclass(frozen=True, slots=True)
+class ConfidenceSections:
+    """The confidence half of a scorecard, plus the one sentence its notes carry.
+
+    Empty when the saved extractions a fit needs are absent, because a published
+    operating point that was fit on nothing is worse than no operating point.
+    """
+
+    calibration: tuple[CalibrationBin, ...] = ()
+    threshold_sweep: tuple[ThresholdPoint, ...] = ()
+    scored_fields: int = 0
+    auto_accept_precision: float = 0.0
+    review_rate: float = 0.0
+
+    def notes(self, split: SplitName) -> str:
+        if not self.scored_fields:
+            return ""
+        return (
+            f" Confidence fit on {FIT_SPLIT}, thresholds chosen on {THRESHOLD_SPLIT},"
+            f" reported on {split}: {self.scored_fields} scored fields,"
+            f" {self.auto_accept_precision:.2%} auto accept precision"
+            f" at {self.review_rate:.2%} review."
+        )
 
 
 def _saved_run(
@@ -174,6 +218,7 @@ def run_eval(dataset_dir: Path, split: SplitName, extractions_dir: Path | None =
     run = _saved_run(manifest, split, extractions_dir) or extract_split(
         dataset_dir, manifest, split
     )
+    sections = confidence_sections(manifest, split, extractions_dir or DEFAULT_EXTRACTIONS_DIR)
     now = datetime.now(UTC)
     git_sha = git_short_sha()
     return Scorecard(
@@ -188,7 +233,67 @@ def run_eval(dataset_dir: Path, split: SplitName, extractions_dir: Path | None =
         documents_processed=len(run.documents),
         documents_unprocessable=len(run.unprocessable),
         field_accuracy=score_fields(run.documents, manifest, split),
-        notes=run_notes(run),
+        calibration=sections.calibration,
+        threshold_sweep=sections.threshold_sweep,
+        notes=run_notes(run) + sections.notes(split),
+    )
+
+
+def confidence_sections(
+    manifest: DatasetManifest, split: SplitName, extractions_dir: Path
+) -> ConfidenceSections:
+    """Reliability and the threshold sweep for one split, or nothing when a fit is impossible.
+
+    Split discipline is delegated, not restated: `fit_scorers` and
+    `choose_thresholds` refuse any split but their own, so the only decision made
+    here is which rows to hand them. The reported split is measured at the
+    threshold that came back and never contributes to choosing it.
+
+    The sweep is laid out the way `crossfoot.evals.plots.family_sweeps` reads it:
+    per family, the calibration curve in ascending threshold order, then one last
+    point holding what the reported split reached at the applied threshold. That
+    last point is the generalization gap, published rather than left to a reader
+    to reconstruct.
+    """
+    train = _labelled_fields(manifest, FIT_SPLIT, extractions_dir)
+    calibration = _labelled_fields(manifest, THRESHOLD_SPLIT, extractions_dir)
+    reported = _labelled_fields(manifest, split, extractions_dir)
+    if not train or not calibration or not reported:
+        return ConfidenceSections()
+
+    models = fit_scorers(
+        [TrainingSample(family, signals, correct, FIT_SPLIT) for family, signals, correct in train],
+        split=FIT_SPLIT,
+    )
+    calibration_samples = _samples(calibration, models, THRESHOLD_SPLIT)
+    reported_samples = _samples(reported, models, split)
+    if not calibration_samples or not reported_samples:
+        return ConfidenceSections()
+
+    bins: list[CalibrationBin] = []
+    sweep: list[ThresholdPoint] = []
+    accepted = 0
+    correct_accepted = 0
+    for point in choose_thresholds(calibration_samples, split=THRESHOLD_SPLIT):
+        family = point.field_family
+        family_reported = [s for s in reported_samples if s.field_family is family]
+        if not family_reported:
+            continue  # nothing of this family reached the reported split
+        family_calibration = [s for s in calibration_samples if s.field_family is family]
+        bins.extend(reliability_bins(reported_samples, family))
+        sweep.extend(sweep_curve(family, family_calibration, point.threshold))
+        sweep.append(sweep_point(family, family_reported, point.threshold))
+        auto = [s for s in family_reported if s.confidence >= point.threshold]
+        accepted += len(auto)
+        correct_accepted += sum(1 for sample in auto if sample.correct)
+
+    scored = len(reported_samples)
+    return ConfidenceSections(
+        calibration=tuple(bins),
+        threshold_sweep=tuple(sweep),
+        scored_fields=scored,
+        auto_accept_precision=correct_accepted / accepted if accepted else 1.0,
+        review_rate=1.0 - accepted / scored,
     )
 
 
@@ -202,6 +307,68 @@ def run_notes(run: ExtractionRun) -> str:
         )
         notes += f" Routed but left unextracted by this offline run: {skipped}."
     return notes + run.degradations.notes()
+
+
+def _labelled_fields(
+    manifest: DatasetManifest, split: SplitName, extractions_dir: Path
+) -> list[LabelledField]:
+    """One split's saved fields paired with truth, ready for a scorer.
+
+    Only the saved extractions count. Re-extracting here would run the offline
+    routes alone, so every scanned document would vanish and the fit would see
+    nothing but the tiers the pipeline already gets right, which reads as a
+    perfectly calibrated model with nothing left to review.
+    """
+    from crossfoot.ingest_db import extraction_run_id, saved_extractions
+
+    documents = saved_extractions(extractions_dir, extraction_run_id(split, manifest.config_hash))
+    if documents is None:
+        return []
+    records = {record.doc_id: record for record in split_records(manifest, split)}
+    rows: list[LabelledField] = []
+    for doc in documents:
+        record = records.get(doc.doc_id)
+        context = None if record is None else signal_context(record)
+        if record is None or record.truth is None or context is None:
+            continue
+        scored = attach_signals(doc, context)
+        for field in (*scored.header_fields, *scored.line_fields):
+            correct = field_is_correct(field, record.truth)
+            if correct is not None:
+                rows.append((field.family, field.signals, correct))
+    return rows
+
+
+def _samples(
+    rows: Sequence[LabelledField],
+    models: Mapping[FieldFamily, LogisticModel],
+    split: SplitName,
+) -> list[ConfidenceSample]:
+    """Scored rows tagged with the split they came from, so the guards can check them."""
+    return [
+        ConfidenceSample(family, models[family].predict(signals), correct, split)
+        for family, signals, correct in rows
+        if family in models
+    ]
+
+
+def sweep_curve(
+    family: FieldFamily, samples: Sequence[ConfidenceSample], applied: float
+) -> list[ThresholdPoint]:
+    """The published curve: an even grid plus the threshold actually applied.
+
+    Public because it is half of a layout `crossfoot.evals.plots.family_sweeps`
+    reads: the applied threshold has to be a point on this curve, or a figure
+    cannot mark the operating point it was drawn to show.
+
+    A threshold that accepts nothing is vacuously precise, so it is left off the
+    curve rather than drawn as a perfect score nobody earned. The applied point
+    stays whatever it looks like: it is the point the build committed to, and a
+    family that ended up reviewing everything must show that.
+    """
+    grid = {index / (SWEEP_GRID_POINTS - 1) for index in range(SWEEP_GRID_POINTS)}
+    points = [sweep_point(family, samples, threshold) for threshold in sorted(grid | {applied})]
+    return [point for point in points if point.review_rate < 1.0 or point.threshold == applied]
 
 
 def statement_from_extraction(

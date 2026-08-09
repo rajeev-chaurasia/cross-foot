@@ -107,6 +107,19 @@ def fit_platt_scaling(samples: Sequence[ConfidenceSample], *, split: SplitName) 
     return PlattScaler(slope=float(weights[1]), intercept=float(weights[0]))
 
 
+def sweep_point(
+    field_family: FieldFamily, samples: Sequence[ConfidenceSample], threshold: float
+) -> ThresholdPoint:
+    """What one family reaches at a threshold already chosen, on whatever split it is handed.
+
+    Reporting, not choosing. `choose_thresholds` is split guarded because picking
+    an operating point on TEST would leak; measuring a point picked elsewhere is
+    exactly what TEST exists for, so this is not guarded and must never be used
+    to select one.
+    """
+    return _sweep(field_family, samples, threshold)
+
+
 def reliability_bins(
     samples: Sequence[ConfidenceSample], field_family: FieldFamily
 ) -> tuple[CalibrationBin, ...]:

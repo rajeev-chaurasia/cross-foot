@@ -245,8 +245,19 @@ def reconcile(
     if recon_mode is ReconMode.ORACLE:
         statements = [record.truth for record in records.values() if record.truth is not None]
     else:
-        for doc in extract_split(dataset, manifest, split_name).documents:
-            statement = statement_from_extraction(doc, records[doc.doc_id])
+        # The saved live extraction, for the same reason the eval prefers it:
+        # re-extracting here runs the offline routes only, so every scanned
+        # document would drop out and the oracle gap would measure which formats
+        # have an extractor rather than how well extraction reads.
+        saved = _saved_extractions(manifest.config_hash, split_name)
+        documents = (
+            saved if saved is not None else extract_split(dataset, manifest, split_name).documents
+        )
+        for doc in documents:
+            record = records.get(doc.doc_id)
+            if record is None or doc.route is ExtractionRoute.UNPROCESSABLE:
+                continue
+            statement = statement_from_extraction(doc, record)
             if statement is not None:
                 statements.append(statement)
 
@@ -320,6 +331,30 @@ def calibrate(
             f" review rate {point.review_rate:.2%},"
             f" ece {expected_calibration_error(bins):.4f}"
         )
+
+
+@app.command()
+def plots(
+    scorecard: Annotated[
+        Path | None,
+        typer.Option(help="Scorecard JSON to draw; defaults to the most recently written."),
+    ] = None,
+) -> None:
+    """Redraw the published figures for a scorecard, next to the scorecard itself."""
+    from crossfoot.evals.plots import latest_scorecard_path, render_figures
+
+    path = scorecard if scorecard is not None else latest_scorecard_path(SCORECARDS_DIR)
+    if path is None:
+        typer.echo(f"No scorecard under {SCORECARDS_DIR}. Run crossfoot eval first.")
+        raise typer.Exit(code=2)
+    typer.echo(f"Drawing {path}")
+    rendered = render_figures(path, scorecards_root=SCORECARDS_DIR)
+    for written in rendered.written:
+        typer.echo(str(written))
+    for reason in rendered.skipped:
+        typer.echo(f"skipped {reason}")
+    if not rendered.written:
+        raise typer.Exit(code=1)
 
 
 @app.command()
