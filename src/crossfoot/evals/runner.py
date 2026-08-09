@@ -38,6 +38,8 @@ _LOGGER = logging.getLogger(__name__)
 
 MANIFEST_FILENAME = "manifest.json"
 LEDGER_FILENAME = "ledger.json"
+# Where `crossfoot extract` writes, so an eval reports the live run by default.
+DEFAULT_EXTRACTIONS_DIR = Path("data/extractions")
 
 _GIT_SHA_FALLBACK = "unknown"
 _GIT_TIMEOUT_SECONDS = 10
@@ -98,6 +100,23 @@ class ExtractionRun:
         return len(self.documents) + len(self.unprocessable) + sum(self.unserved.values())
 
 
+def _saved_run(
+    manifest: DatasetManifest, split: SplitName, extractions_dir: Path | None
+) -> ExtractionRun | None:
+    """The live extraction for this split, split into served and unprocessable."""
+    from crossfoot.ingest_db import extraction_run_id, saved_extractions
+
+    if extractions_dir is None:
+        extractions_dir = DEFAULT_EXTRACTIONS_DIR
+    run_id = extraction_run_id(split, manifest.config_hash)
+    documents = saved_extractions(extractions_dir, run_id)
+    if documents is None:
+        return None
+    served = tuple(d for d in documents if d.route is not ExtractionRoute.UNPROCESSABLE)
+    failed = tuple(d for d in documents if d.route is ExtractionRoute.UNPROCESSABLE)
+    return ExtractionRun(documents=served, unprocessable=failed, unserved=Counter())
+
+
 def load_manifest(dataset_dir: Path) -> DatasetManifest:
     return DatasetManifest.model_validate_json((dataset_dir / MANIFEST_FILENAME).read_bytes())
 
@@ -142,12 +161,19 @@ def extract_split(dataset_dir: Path, manifest: DatasetManifest, split: SplitName
     )
 
 
-def run_eval(dataset_dir: Path, split: SplitName) -> Scorecard:
-    """Extract the split with every offline route, score it, write a scorecard."""
+def run_eval(dataset_dir: Path, split: SplitName, extractions_dir: Path | None = None) -> Scorecard:
+    """Score a split and write a scorecard.
+
+    Prefers the documents a live `crossfoot extract` saved. Re-extracting here
+    runs the offline routes only, so every scanned document would score zero and
+    the published scorecard would understate the pipeline it is meant to report.
+    """
     manifest = load_manifest(dataset_dir)
     # The ledger is a legitimate pipeline input; validate it is present and well formed.
     load_ledger(dataset_dir)
-    run = extract_split(dataset_dir, manifest, split)
+    run = _saved_run(manifest, split, extractions_dir) or extract_split(
+        dataset_dir, manifest, split
+    )
     now = datetime.now(UTC)
     git_sha = git_short_sha()
     return Scorecard(
