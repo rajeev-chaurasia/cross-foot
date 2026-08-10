@@ -11,7 +11,11 @@ from contextlib import closing
 from pathlib import Path
 
 from fastapi import FastAPI
+from starlette.exceptions import HTTPException
+from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
+from starlette.status import HTTP_404_NOT_FOUND
+from starlette.types import Scope
 
 from crossfoot import __version__
 from crossfoot.api.deps import API_PREFIX, STATE_ATTRIBUTE, ApiPaths
@@ -33,6 +37,37 @@ FRONTEND_DIST = Path("frontend/dist")
 
 FRONTEND_MOUNT = "/"
 FRONTEND_NAME = "frontend"
+SPA_SHELL = "index.html"
+API_ROOT_SEGMENT = API_PREFIX.strip("/")
+
+
+class SpaFiles(StaticFiles):
+    """Static files that answer an unknown page with the app shell.
+
+    Routing happens in the browser, so /metrics is a real page with no file
+    behind it. Plain StaticFiles answers 404 there, which breaks a bookmark, a
+    refresh, and any shared link that is not the root.
+    """
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as error:
+            if error.status_code != HTTP_404_NOT_FOUND or not _is_page(path):
+                raise
+            return await super().get_response(SPA_SHELL, scope)
+
+
+def _is_page(path: str) -> bool:
+    """Whether an unmatched path is a browser route rather than a missing file.
+
+    A suffix means an asset was asked for, and answering a missing script with
+    HTML turns a clear 404 into a content type error. An unmatched path under
+    the API prefix is a caller's typo and has to stay JSON, since a page there
+    would tell a client its request succeeded.
+    """
+    parts = Path(path).parts
+    return not Path(path).suffix and parts[:1] != (API_ROOT_SEGMENT,)
 
 
 def create_app(
@@ -75,7 +110,7 @@ def mount_frontend(app: FastAPI, dist: Path = FRONTEND_DIST) -> bool:
     """
     if not (dist / "index.html").is_file():
         return False
-    app.mount(FRONTEND_MOUNT, StaticFiles(directory=dist, html=True), name=FRONTEND_NAME)
+    app.mount(FRONTEND_MOUNT, SpaFiles(directory=dist, html=True), name=FRONTEND_NAME)
     return True
 
 
