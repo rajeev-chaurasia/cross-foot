@@ -174,6 +174,10 @@ INSERT INTO llm_calls (
 # by rowid rather than by a timestamp two calls can share.
 _SELECT_RUN = "SELECT * FROM llm_calls WHERE run_id = ? ORDER BY rowid"
 
+# Every attempt is written here, successes and failures alike, so this answers
+# "which models were asked" rather than "which models returned something".
+_SELECT_MODELS = "SELECT DISTINCT model FROM llm_calls WHERE run_id = ? ORDER BY model"
+
 _TOTALS = """
 SELECT
     {column} AS bucket,
@@ -190,6 +194,28 @@ GROUP BY {column}
 
 _DOC_COLUMN = "doc_id"
 _PROVIDER_COLUMN = "provider"
+
+
+def models_for_run(db_path: Path, run_id: str) -> tuple[str, ...]:
+    """The distinct models that served a run, named alphabetically.
+
+    A scorecard has to say which models produced the numbers it publishes, and
+    the ledger is the only record of that: it holds one row per call attempt with
+    the model that served it, so the answer is read rather than declared. An
+    absent ledger, or a ledger without the table, returns nothing, and nothing
+    means the run recorded no models rather than that no model was called. The
+    two are not the same thing and no reader may collapse them.
+    """
+    if not db_path.is_file():
+        return ()
+    connection = sqlite3.connect(db_path)
+    try:
+        rows = connection.execute(_SELECT_MODELS, (run_id,)).fetchall()
+    except sqlite3.DatabaseError:
+        return ()
+    finally:
+        connection.close()
+    return tuple(str(row[0]) for row in rows)
 
 
 class CostLedger:

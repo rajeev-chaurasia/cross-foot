@@ -98,9 +98,18 @@ def test_the_applied_thresholds_are_readable_back(dataset: Path, tmp_path: Path)
     assert str(row["threshold_split"]) == SplitName.CALIBRATION.value
 
 
-def test_the_metrics_route_publishes_the_operating_point_that_was_applied(
+def test_the_metrics_route_never_publishes_the_applied_point_as_a_sweep(
     dataset: Path, tmp_path: Path
 ) -> None:
+    """A build's operating point is a calibration figure and may not stand in for a sweep.
+
+    `applied_thresholds` records the point chosen on the calibration split, so
+    its precision and review rate were measured there. Serving those rows as the
+    metrics page's `threshold_sweep` puts a calibration number under a scorecard
+    whose split is `test`, and throws away the held out result the scorecard's
+    own sweep carries in its final entry. A scorecard with no sweep publishes no
+    sweep, which is the honest answer.
+    """
     counts = _build(dataset, tmp_path)
     scorecards = tmp_path / "scorecards"
     card = Scorecard(
@@ -125,11 +134,12 @@ def test_the_metrics_route_publishes_the_operating_point_that_was_applied(
     app = create_app(db_path=tmp_path / DB_NAME, crops_root=crops, scorecards_dir=scorecards)
     with TestClient(app) as client:
         payload = client.get("/api/metrics").json()
+    # The build did apply a point, so an empty answer below is a refusal to
+    # substitute rather than an absence of anything to substitute.
+    assert counts.thresholds
     # The scorecard carries no sweep at all, so anything here came from the build.
     assert card.threshold_sweep == ()
-    assert payload["threshold_sweep"] == [
-        json.loads(point.model_dump_json()) for point in counts.thresholds
-    ]
+    assert payload["threshold_sweep"] == []
 
 
 def test_a_human_corrected_field_is_left_alone_by_a_rebuild(dataset: Path, tmp_path: Path) -> None:

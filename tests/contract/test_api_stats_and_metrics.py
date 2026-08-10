@@ -53,6 +53,7 @@ from crossfoot.constants import (
     ReviewStatus,
     SplitName,
 )
+from crossfoot.db import thresholds
 from crossfoot.models.scorecard import (
     CalibrationBin,
     FieldAccuracyCell,
@@ -424,3 +425,38 @@ def test_metrics_returns_the_threshold_sweep(client: TestClient) -> None:
     assert payload["threshold_sweep"] == expected
     # The newer run's operating point, not the older run's 0.31.
     assert payload["threshold_sweep"][0]["review_rate"] == pytest.approx(0.181)
+
+
+def test_metrics_publishes_the_scorecard_sweep_not_the_applied_thresholds(
+    client: TestClient, db_path: Path
+) -> None:
+    """A build's applied point never stands in for the scorecard's sweep.
+
+    `applied_thresholds` holds the point chosen on the calibration split, so its
+    precision and review rate are calibration numbers by construction. Serving
+    them under a scorecard whose split is `test` publishes a calibration figure
+    as a test result and drops the held out row entirely, which is the exact
+    substitution this test exists to forbid.
+    """
+    with connection(db_path) as conn:
+        thresholds.replace(
+            conn,
+            (
+                ThresholdPoint(
+                    field_family=FieldFamily.AMOUNT,
+                    threshold=0.9,
+                    # Deliberately unlike anything the scorecard published.
+                    auto_accept_precision=1.0,
+                    review_rate=0.7757,
+                ),
+            ),
+            run_id="ingest-contract",
+            fit_split=SplitName.TRAIN,
+            threshold_split=SplitName.CALIBRATION,
+        )
+
+    payload = client.get("/api/metrics").json()
+    assert payload["threshold_sweep"] == json.loads(NEWER.model_dump_json())["threshold_sweep"]
+    assert all(
+        point["review_rate"] != pytest.approx(0.7757) for point in payload["threshold_sweep"]
+    )

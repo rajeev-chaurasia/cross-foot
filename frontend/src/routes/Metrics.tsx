@@ -14,7 +14,7 @@ import { ReliabilityDiagram } from '../components/charts/ReliabilityDiagram'
 import { ThresholdSweep } from '../components/charts/ThresholdSweep'
 import { CARD } from '../components/ui'
 import { formatMicroUsd, formatRate, formatTimestamp, humanize } from '../lib/format'
-import { familiesOf, sweepFor } from '../lib/metrics'
+import { familiesOf, sweepFor, THRESHOLD_SPLIT } from '../lib/metrics'
 
 interface TileProps {
   label: string
@@ -76,8 +76,11 @@ export function Metrics() {
           {formatTimestamp(scorecard.created_at)}, commit{' '}
           <span className="font-mono">{scorecard.git_sha}</span>, {humanize(scorecard.split)} split,
           seed {scorecard.master_seed}.{' '}
+          {/* An empty list is an absent record, not an absent model. The scanned
+              tier goes through a vision model on every run, so "none were
+              called" is a claim this page is never in a position to make. */}
           {scorecard.models_used.length === 0
-            ? 'No model was called on this run.'
+            ? 'This run did not record the models it called.'
             : `Models: ${scorecard.models_used.join(', ')}.`}
         </p>
         {scorecard.notes !== '' && (
@@ -187,18 +190,31 @@ export function Metrics() {
 
         <section className={`${CARD} p-4`} aria-labelledby="sweep-heading">
           <h2 id="sweep-heading" className="text-base font-semibold text-slate-900">
-            Threshold sweep
+            Threshold sweep, {THRESHOLD_SPLIT} split against {scorecard.split} split
           </h2>
           {sweepFamilies.length === 0 ? (
             <p className="mt-2 text-sm text-slate-600">
               This scorecard published no threshold sweep.
             </p>
           ) : (
-            <div className="mt-3 space-y-6">
-              {sweepFamilies.map((family) => (
-                <ThresholdSweep key={family} family={family} points={sweepFor(sweep, family)} />
-              ))}
-            </div>
+            <>
+              <p className="mt-1 text-sm text-slate-600">
+                A threshold may only be chosen on the {THRESHOLD_SPLIT} split, so the curve and the
+                chosen point are {THRESHOLD_SPLIT} figures. What the held out {scorecard.split} split
+                delivered at that same threshold is the second marker, and it is the number the
+                product claim rests on.
+              </p>
+              <div className="mt-3 space-y-6">
+                {sweepFamilies.map((family) => (
+                  <ThresholdSweep
+                    key={family}
+                    family={family}
+                    points={sweepFor(sweep, family)}
+                    reportedSplit={scorecard.split}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </section>
       </div>

@@ -1,16 +1,55 @@
-"""The metrics route publishes the latest committed scorecard, and nothing when there is none."""
+"""The metrics route publishes the latest committed scorecard, and nothing when there is none.
+
+The sweep it publishes is the scorecard's own, in the scorecard's own order.
+That order is the only thing that says which entry is the held out result, so
+reordering it or serving a different sweep in its place loses the one number the
+section exists to show.
+"""
 
 from datetime import UTC, datetime
 from pathlib import Path
 
+from crossfoot.api.dto import MetricsPayload
 from crossfoot.api.routes.metrics import SCORECARD_FILENAME, latest_scorecard
-from crossfoot.constants import SplitName
-from crossfoot.models.scorecard import Scorecard
+from crossfoot.constants import FieldFamily, SplitName
+from crossfoot.models.scorecard import Scorecard, ThresholdPoint
 
 OLDER_RUN_ID = "20260801T120000-aaaaaaa"
 NEWER_RUN_ID = "20260807T090000-bbbbbbb"
 # Later in time but earlier by name, so ordering by run id alone would pick wrong.
 LATEST_RUN_ID = "20260731T000000-ccccccc"
+
+# The committed layout: the calibration curve in ascending threshold order, then
+# one final entry holding what the test split reached at the applied threshold.
+# The 0.9 curve point outscores the applied one, and the final entry's threshold
+# is not the largest, so both "best precision wins" and "sort by threshold" lose
+# the held out row.
+SWEEP: tuple[ThresholdPoint, ...] = (
+    ThresholdPoint(
+        field_family=FieldFamily.AMOUNT,
+        threshold=0.5,
+        auto_accept_precision=0.9802,
+        review_rate=0.0198,
+    ),
+    ThresholdPoint(
+        field_family=FieldFamily.AMOUNT,
+        threshold=0.7,
+        auto_accept_precision=0.9969,
+        review_rate=0.0504,
+    ),
+    ThresholdPoint(
+        field_family=FieldFamily.AMOUNT,
+        threshold=0.9,
+        auto_accept_precision=1.0,
+        review_rate=0.42,
+    ),
+    ThresholdPoint(
+        field_family=FieldFamily.AMOUNT,
+        threshold=0.7,
+        auto_accept_precision=0.9597,
+        review_rate=0.0534,
+    ),
+)
 
 
 def scorecard(run_id: str, created_at: datetime) -> Scorecard:
@@ -27,6 +66,16 @@ def scorecard(run_id: str, created_at: datetime) -> Scorecard:
         documents_unprocessable=0,
         field_accuracy=(),
     )
+
+
+def test_the_payload_hands_over_the_scorecard_sweep_untouched() -> None:
+    card = scorecard(NEWER_RUN_ID, datetime(2026, 8, 7, 9, 0, tzinfo=UTC)).model_copy(
+        update={"threshold_sweep": SWEEP}
+    )
+    payload = MetricsPayload.of(card)
+    assert payload.threshold_sweep == SWEEP
+    # The held out result is the last entry and has to stay the last entry.
+    assert payload.threshold_sweep[-1].auto_accept_precision == 0.9597
 
 
 def commit(root: Path, card: Scorecard) -> None:

@@ -13,6 +13,7 @@ import type {
   ReviewItemDetail,
   ReviewQueueResponse,
   StatsSummary,
+  ThresholdPoint,
 } from '../api/types'
 
 export const SUMMARY: StatsSummary = {
@@ -229,6 +230,34 @@ export const EXCEPTIONS: ExceptionListResponse = {
   total: 5,
 }
 
+/**
+ * A threshold sweep laid out exactly as a committed scorecard lays one out.
+ *
+ * Per family: the calibration curve in ascending threshold order, then ONE
+ * FINAL ENTRY holding what the held out test split reached at the threshold that
+ * was applied. Two traps from the real artifact are preserved on purpose, since
+ * both of them were shipped as bugs:
+ *
+ * - amount's curve carries a point at threshold 0.9 whose precision (100%) beats
+ *   the applied point's, so anything that marks "the best published precision"
+ *   marks a calibration point that was never chosen.
+ * - the final entry's threshold is not the largest in its family, so any sort by
+ *   threshold moves it out of last place and it can never be identified again.
+ */
+const SWEEP: ThresholdPoint[] = [
+  { field_family: 'amount', threshold: 0, auto_accept_precision: 0.9614, review_rate: 0 },
+  { field_family: 'amount', threshold: 0.5, auto_accept_precision: 0.9802, review_rate: 0.0198 },
+  // The applied point, chosen on calibration.
+  { field_family: 'amount', threshold: 0.7, auto_accept_precision: 0.9969, review_rate: 0.0504 },
+  { field_family: 'amount', threshold: 0.9, auto_accept_precision: 1, review_rate: 0.42 },
+  // What the test split reached at the applied threshold.
+  { field_family: 'amount', threshold: 0.7, auto_accept_precision: 0.9597, review_rate: 0.0534 },
+  { field_family: 'reference', threshold: 0, auto_accept_precision: 0.9259, review_rate: 0 },
+  { field_family: 'reference', threshold: 0.6, auto_accept_precision: 0.9643, review_rate: 0.3 },
+  { field_family: 'reference', threshold: 0.93, auto_accept_precision: 1, review_rate: 0.7757 },
+  { field_family: 'reference', threshold: 0.93, auto_accept_precision: 0.9505, review_rate: 0.8196 },
+]
+
 export const METRICS: MetricsResponse = {
   scorecard: {
     run_id: '20260807T090000-bbbbbbb',
@@ -237,7 +266,7 @@ export const METRICS: MetricsResponse = {
     dataset_config_hash: 'b'.repeat(64),
     master_seed: 42,
     split: 'test',
-    models_used: ['gemini-3.5-flash'],
+    models_used: ['gemini-3.5-flash', 'qwen2.5vl:7b'],
     documents_total: 105,
     documents_processed: 104,
     documents_unprocessable: 1,
@@ -277,26 +306,7 @@ export const METRICS: MetricsResponse = {
       { field_family: 'amount', mean_confidence: 0.91, empirical_accuracy: 0.88, count: 120 },
       { field_family: 'reference', mean_confidence: 0.55, empirical_accuracy: 0.51, count: 80 },
     ],
-    threshold_sweep: [
-      {
-        field_family: 'amount',
-        threshold: 0.5,
-        auto_accept_precision: 0.951,
-        review_rate: 0.42,
-      },
-      {
-        field_family: 'amount',
-        threshold: 0.9,
-        auto_accept_precision: 0.9964,
-        review_rate: 0.181,
-      },
-      {
-        field_family: 'reference',
-        threshold: 0.9,
-        auto_accept_precision: 1,
-        review_rate: 0.196,
-      },
-    ],
+    threshold_sweep: SWEEP,
     reconciliation: [],
     costs: [],
     notes: 'first calibrated run',
@@ -305,9 +315,12 @@ export const METRICS: MetricsResponse = {
     { field_family: 'amount', mean_confidence: 0.91, empirical_accuracy: 0.88, count: 120 },
     { field_family: 'reference', mean_confidence: 0.55, empirical_accuracy: 0.51, count: 80 },
   ],
-  threshold_sweep: [
-    { field_family: 'amount', threshold: 0.5, auto_accept_precision: 0.951, review_rate: 0.42 },
-    { field_family: 'amount', threshold: 0.9, auto_accept_precision: 0.9964, review_rate: 0.181 },
-    { field_family: 'reference', threshold: 0.9, auto_accept_precision: 1, review_rate: 0.196 },
-  ],
+  // The route publishes the scorecard's own sweep, so these are the same points.
+  threshold_sweep: SWEEP,
+}
+
+/** The same payload from a run that never wrote down which models served it. */
+export const METRICS_WITHOUT_MODELS: MetricsResponse = {
+  ...METRICS,
+  scorecard: { ...METRICS.scorecard, models_used: [] },
 }

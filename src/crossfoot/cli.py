@@ -140,7 +140,7 @@ def eval(
     """Run the offline eval over every routed tier and write a scorecard JSON."""
     from crossfoot.evals.runner import run_eval  # lazy: keeps other commands fast
 
-    scorecard = run_eval(dataset, _split_name(split))
+    scorecard = run_eval(dataset, _split_name(split), cost_db=COST_DB)
     for cell in scorecard.field_accuracy:
         accuracy = cell.correct_canonical / cell.fields_expected
         typer.echo(
@@ -225,6 +225,7 @@ def reconcile(
         git_short_sha,
         load_ledger,
         load_manifest,
+        models_used,
         split_records,
         statement_from_extraction,
     )
@@ -279,7 +280,13 @@ def reconcile(
         dataset_config_hash=manifest.config_hash,
         master_seed=manifest.master_seed,
         split=split_name,
-        models_used=(),
+        # Oracle is fed truth lines and calls nothing; end to end is fed the
+        # saved extraction, so it inherits whatever models read those documents.
+        models_used=(
+            ()
+            if recon_mode is ReconMode.ORACLE
+            else models_used(manifest.config_hash, split_name, COST_DB)
+        ),
         documents_total=len(records),
         documents_processed=len(statements),
         documents_unprocessable=len(records) - len(statements),

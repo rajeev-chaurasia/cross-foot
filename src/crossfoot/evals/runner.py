@@ -35,6 +35,7 @@ from crossfoot.constants import (
     Provider,
     SplitName,
 )
+from crossfoot.costs.ledger import models_for_run
 from crossfoot.evals.metrics import field_is_correct, score_fields
 from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
 from crossfoot.extraction.pdf_text import extract_pdf
@@ -53,6 +54,9 @@ MANIFEST_FILENAME = "manifest.json"
 LEDGER_FILENAME = "ledger.json"
 # Where `crossfoot extract` writes, so an eval reports the live run by default.
 DEFAULT_EXTRACTIONS_DIR = Path("data/extractions")
+# Where the vision path bills itself. The scorecard names its models from here,
+# so a run that called a model cannot publish a blank where the model should be.
+DEFAULT_COST_DB = Path("data/costs.db")
 
 _GIT_SHA_FALLBACK = "unknown"
 _GIT_TIMEOUT_SECONDS = 10
@@ -207,12 +211,21 @@ def extract_split(dataset_dir: Path, manifest: DatasetManifest, split: SplitName
     )
 
 
-def run_eval(dataset_dir: Path, split: SplitName, extractions_dir: Path | None = None) -> Scorecard:
+def run_eval(
+    dataset_dir: Path,
+    split: SplitName,
+    extractions_dir: Path | None = None,
+    cost_db: Path | None = None,
+) -> Scorecard:
     """Score a split and write a scorecard.
 
     Prefers the documents a live `crossfoot extract` saved. Re-extracting here
     runs the offline routes only, so every scanned document would score zero and
     the published scorecard would understate the pipeline it is meant to report.
+
+    The models the scorecard names are read from the cost ledger for that same
+    saved run, never declared here: the scanned tier is served by whichever
+    vision provider answered on the day, and only the ledger knows which.
     """
     manifest = load_manifest(dataset_dir)
     # The ledger is a legitimate pipeline input; validate it is present and well formed.
@@ -230,7 +243,7 @@ def run_eval(dataset_dir: Path, split: SplitName, extractions_dir: Path | None =
         dataset_config_hash=manifest.config_hash,
         master_seed=manifest.master_seed,
         split=split,
-        models_used=(),
+        models_used=models_used(manifest.config_hash, split, cost_db or DEFAULT_COST_DB),
         documents_total=run.total(),
         documents_processed=len(run.documents),
         documents_unprocessable=len(run.unprocessable),
@@ -239,6 +252,18 @@ def run_eval(dataset_dir: Path, split: SplitName, extractions_dir: Path | None =
         threshold_sweep=sections.threshold_sweep,
         notes=run_notes(run) + sections.notes(split),
     )
+
+
+def models_used(config_hash: str, split: SplitName, cost_db: Path) -> tuple[str, ...]:
+    """The models the extraction being scored actually called, from the cost ledger.
+
+    Public because both scorecard write sites need it and neither may guess: a
+    scorecard that publishes an empty tuple is saying it has no record, which is
+    not the same claim as no model having run.
+    """
+    from crossfoot.ingest_db import extraction_run_id
+
+    return models_for_run(cost_db, extraction_run_id(split, config_hash))
 
 
 def confidence_sections(

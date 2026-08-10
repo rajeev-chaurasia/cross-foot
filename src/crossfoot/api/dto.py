@@ -243,17 +243,24 @@ class MetricsPayload(BaseModel):
     threshold_sweep: tuple[ThresholdPoint, ...]
 
     @classmethod
-    def of(
-        cls, scorecard: Scorecard, *, applied: tuple[ThresholdPoint, ...] = ()
-    ) -> MetricsPayload:
-        """The operating point actually applied wins over whatever sweep a scorecard recorded.
+    def of(cls, scorecard: Scorecard) -> MetricsPayload:
+        """The scorecard's own sweep, whole and in its published order.
 
-        A scorecard says what one run found possible; the applied points say what
-        the fields on screen were cut at. When a build has applied none, the
-        scorecard's own sweep is still the honest answer.
+        The order is load bearing. A sweep runs one family at a time: the
+        calibration curve in ascending threshold order, then one last point
+        holding what the reported split reached at the applied threshold, which
+        is the only held out number in the section. Nothing here filters,
+        reorders, or substitutes for it.
+
+        The `applied_thresholds` table is deliberately not published in its
+        place. Those rows are the point chosen on the calibration split, so their
+        precision and review rate are calibration figures by construction;
+        serving them under a scorecard whose split is `test` would put a
+        calibration number under a test heading and drop the held out result
+        entirely.
         """
         return cls(
             scorecard=scorecard,
             calibration=scorecard.calibration,
-            threshold_sweep=applied or scorecard.threshold_sweep,
+            threshold_sweep=scorecard.threshold_sweep,
         )
