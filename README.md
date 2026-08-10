@@ -21,30 +21,16 @@ these are the numbers the held out test split produced at those thresholds:
 | Injected discrepancies caught, matching engine fed truth | 71 of 71, zero false detections |
 | Injected discrepancies caught, matching engine fed extractions | 51 of 71, 150 false detections |
 
-A reviewer looks at about one field in four. What they skip is 96.6 percent correct. The
-last two rows are the same matcher over the same discrepancies, once on ground truth lines
-and once on what the pipeline actually read, so the distance between them is extraction
-error and nothing else.
+A reviewer looks at about one field in four of what came back. That is not the whole
+workload: 419 of the 2194 printed fields were never returned by any extractor, so they
+appear in no queue and in no precision figure either. Counting a human's real burden as
+reviewed plus never returned against everything printed gives 40.4 percent.
 
-Two earlier versions of this page published better numbers, and both were wrong in ways
-worth naming.
-
-The first, 98.02 percent at 16.02 percent review, was partly bought with information no
-real document carries. Four confidence features were read out of the dataset manifest
-rather than out of the artifact: the generator's degradation tier, the true statement
-period, the true marque, and the true per line type. Every one is now derived from the file
-and the extraction, or dropped, and what each cost is below under "What the honest signals
-cost".
-
-The second, 97.49 percent at 28.84 percent review, was measured over a corpus that had
-quietly lost 26 of its 210 documents. Seventeen XLSX files were carrying an `unrecognized`
-verdict from a router that predated the XLSX extractor. Eight scanned statements had failed
-schema validation twice, which the run recorded as a bad document; every one of those
-responses had stopped at exactly 4096 tokens, the default context the local model was being
-served with, so the JSON was cut off mid object. One more was dropped outright when a
-provider timed out, and nothing in the scorecard said a document was missing. All 26 are
-read here, and the numbers got worse, because eight of the documents that came back are
-hard scans.
+The last two rows are the same matcher over the same discrepancies, once on ground truth
+statement lines and once on the lines the pipeline actually read, so the distance between
+them is extraction error on the lines. Both modes take the dealer, the document type, the
+marque and the statement period from the manifest, because the reconciler blocks on those
+and no extractor produces them.
 
 ![Auto accept precision against review rate, per family](scorecards/20260810T053457-a134f91/threshold-sweep.png)
 
@@ -187,6 +173,12 @@ that the reader abstains instead of guessing, not that the scorer caught anythin
 
 ### What the honest signals cost
 
+These numbers are worse than an earlier run of this pipeline reported, and both reasons are
+worth knowing. The first is here: four confidence features were read out of the dataset
+manifest rather than out of the artifact, which is information no real document carries.
+The second was that 26 of the 210 documents were being discarded before they were ever
+scored, and that story is under "Route by bytes" in the design notes.
+
 `SignalContext` used to be handed a `ManifestRecord`. Four of the values it took from there
 have no inference time equivalent, and `src/crossfoot/scoring.py`, which materializes the
 review database the API and the UI read, took the same route. What replaced each:
@@ -203,7 +195,8 @@ each time, the tier label alone was worth about 16 percentage points of review r
 merging `scan_light` and `scan_heavy` into one scanned value cost 4 points, and removing
 tier information entirely cost 37. The route lands between them, because a document does
 announce whether it carries a text layer and does not announce how badly it was
-photocopied.
+photocopied. Those three figures were measured on the earlier corpus and no committed
+scorecard carries them, so they are the shape of the effect rather than current numbers.
 
 `tests/unit/test_truth_boundary.py` walks the AST of every module under `src/crossfoot`
 except the generator, the eval harness and the manifest model itself, and fails the build
@@ -215,7 +208,7 @@ the leak coming back as a new field.
 
 Expected calibration error on test, computed from the committed calibration bins with
 `expected_calibration_error` in `src/crossfoot/confidence/calibration.py`: amount 0.027,
-date 0.043, reference 0.093, text 0.051. The contract sets a ceiling of 0.05 and calls for
+date 0.042, reference 0.093, text 0.051. The contract sets a ceiling of 0.05 and calls for
 Platt scaling fit on the calibration split above it. Reference is well over the ceiling and
 text sits just past it; the remedy has not been applied. See Limitations.
 
@@ -264,9 +257,13 @@ Reporting zero would make a local run look free rather than cheap, so the price 
 would list for at a comparable hosted vision model. Under that equivalence the cost ledger
 for the whole corpus, all three splits, totals 0.1831 USD across the 210 documents that
 were processed, about **0.00087 USD per document**. Of that, 0.0614 USD is cloud traffic
-priced at a real list rate and 0.1218 USD is the local model priced as if it were hosted.
-The prices themselves are marked `# unverified` in the table until confirmed against each
-provider's public page.
+priced at a real list rate and 0.1217 USD is the local model priced as if it were hosted.
+The two local entries are marked `# equivalence, priced as nemotron-nano-12b-v2-vl`, a 12B
+vision model the run itself also called, and they supply two thirds of the total.
+
+Only 84 documents ever reach a model, the scanned ones, so a document that costs anything
+costs 0.00218 USD. The 0.00087 divides across everything processed, which is the honest
+figure for a pipeline whose point is routing most work to extractors that cost nothing.
 
 This is the one number on this page that is not in a committed scorecard. `crossfoot eval`
 does not populate the scorecard's `costs` section yet, so every committed scorecard has
@@ -297,16 +294,22 @@ carries a docstring saying why.
 
 **Nothing that scores a document can see the answers.** One test walks the AST of every
 module under `src/crossfoot` and fails if any of them imports the generator or the manifest
-models, or mentions `manifest.json`. Five modules are exempt and each is named with its
-reason: the generator writes the answer key, the eval harness scores against it, the
-manifest model is it, and `ingest_db.py` and `cli.py` are the dataset commands. An earlier
-version named three packages instead, which left `scoring.py` outside the net and let the
-manifest reach the review database; that is the leak this build closed.
+models, or mentions `manifest.json`. Three modules and two directories are exempt, the
+generator that writes the answer key and the eval harness that scores against it, and the
+exemption is by directory, so this catches the accidental leak rather than a determined
+one. It caught a real one: an earlier build named three packages instead, which left
+`scoring.py` outside the net and let the manifest reach the review database. The stronger
+half of the same test pins the exact field lists of `FieldSignals` and `SignalContext` by
+set equality, so a leak arriving as a new signal fails even when the import graph is
+clean.
 
 **Scorecards are committed with their git sha.** Each carries `run_id`, `git_sha`,
 `dataset_config_hash`, `master_seed`, and the split it reports. The dataset hash on all
-three test split scorecards here is `e14a532c` and the seed is 42, so anyone can
-regenerate the corpus and confirm they are reading numbers about the same 220 files. All
+three test split scorecards here is `e14a532c` and the seed is 42. That hash covers the
+generator's configuration rather than the rendered bytes, so a regenerated corpus matches
+on the manifest, the ledger, the splits and 205 of 222 files, and differs on the 17
+`scan_heavy` renders described under Reproduce it. Every deterministic tier is checkable
+against these numbers; the heavy scan tier is not. All
 three were produced at commit `a134f91`, after the corpus repair and before any later
 change, so each `git_sha` names code that reproduces it. The scorecard also records every
 model that served the run, which is how `qwen2.5vl:7b` and `qwen2.5vl-crossfoot:7b` both
@@ -327,7 +330,20 @@ just setup                  # uv sync, pre-commit hooks, playwright chromium
 just                        # ruff, mypy strict, pytest
 ```
 
-Build the corpus and score the deterministic tiers. This much needs no API key and no GPU:
+Check the published numbers against a corpus you generate yourself. No API key, no GPU:
+
+```bash
+just repro
+```
+
+That regenerates the corpus from seed 42 into its own directory, scores the deterministic
+tiers, and compares them cell by cell with the committed scorecard. It compares 12 cells and
+should report 0 differences. It deliberately does not compare the two scanned tiers, and it
+says so rather than passing quietly: those need a vision model, and `scan_heavy` does not
+regenerate byte identically, so its images would not be the images the published numbers
+were read off.
+
+The individual steps, if you want them:
 
 ```bash
 uv run crossfoot gen --seed 42 --out data/dataset
@@ -336,8 +352,14 @@ uv run crossfoot reconcile --dataset data/dataset --split test --mode oracle
 ```
 
 `gen` renders through Playwright Chromium and degrades scans through Augraphy, so it is
-the slow step. The same seed produces byte identical output, asserted by
-`tests/contract/test_generator_determinism.py`.
+the slow step. The same seed reproduces 205 of the 222 files byte for byte. The other 17
+are `scan_heavy` documents, 17 of the 32 that tier holds, and they differ on every run: an
+Augraphy augmentation reached only by part of that tier draws from a global random source
+that neither the master seed nor the per document seed touches. Measured by generating the
+full profile twice at seed 42 and hashing every file.
+`tests/contract/test_generator_determinism.py` hashes every file the small profile writes,
+which covers every tier except `scan_heavy`, since that profile contains none. See
+Limitations.
 
 The scanned tier needs a vision model that also supports `json_schema` response formats.
 Point `CROSSFOOT_LLM_BASE_URL` at any OpenAI compatible endpoint, local or hosted, or set
@@ -371,6 +393,19 @@ choice. `data/` is not committed, so the corpus, the extractions, and the ledger
 rebuilt locally rather than downloaded.
 
 ## Design notes worth defending
+
+**Route by bytes, and distrust the word "unprocessable".** 26 of the 210 documents were
+being dropped before they were scored, and every one had a different cause wearing the same
+label. 17 XLSX files carried an `unrecognized` verdict from a router that predated the XLSX
+extractor, so the fix is that a resumed run re asks any document whose route now has an
+extractor rather than inheriting the old build's verdict. 8 scans had failed schema
+validation twice and been recorded as bad documents; every one of those responses had
+stopped at exactly 4096 tokens, and nothing below 4096 ever failed, which is what identified
+the serving context rather than the model or the page. That is why `ollama/` carries a
+Modelfile and `just model` builds it: the working configuration is pinned next to the code
+instead of living in someone's shell history. The last document was lost to a provider
+timeout and simply absent from the denominator, which is the failure worth fearing most,
+because the scorecard still looked healthy.
 
 **The provider was chosen by probing, not by a leaderboard.** Every candidate got one
 direct call carrying an image and a `json_schema` response format, against its own default
@@ -409,69 +444,45 @@ horizontal projection profile on the vision path. A model supplied bounding box 
 refines a band it already agrees with, and is discarded silently when it fails a sanity
 check. Bounding boxes are never scored.
 
-Row detection works far less often than that description suggests, and the failure is not
-random. Measured over the whole review database, 493 of 1514 scanned fields render as a row
-band and the other 1021 fall back to the whole page, so banding is the minority at 32.6
-percent. It is almost entirely a property of the marque's layout: Kaizen bands 77.3 percent
-of the time and Meridian 65.5, while Northstar manages 5.1 percent and Atlas never bands
-once across 371 fields. On an Atlas scan the reviewer is handed the entire statement and
-told to find the value, which the crop caption says in as many words rather than implying a
-tight crop that is not there.
+Row detection succeeds less often than that description suggests, and a multi page scan
+never bands at all, because the row locator is only handed a row position for single page
+documents. The crop caption says which of the two a reviewer is looking at, so a whole page
+fallback tells them to find the value themselves rather than implying a tight crop that is
+not there.
 
 ## Limitations
 
-**The documents are synthetic.** These are generated statements: realistic in format,
-built from four fictional marques, with the paperwork conventions of real OEM statements
-but none of their content. No real dealership has run this and no real statement has been
-through it. Every number on this page describes how the pipeline performs on the
-generator's world. Real scans are dirtier in ways a generator does not know to imitate,
-real chart of accounts data is messier than a synthesized ledger, and the discrepancy mix
-here is one a script chose. Treat the numbers as a measurement of the method, not a
-forecast of production accuracy.
+**The documents are synthetic.** Realistic in format, built from four fictional marques,
+with the paperwork conventions of real OEM statements and none of their content. No real
+dealership has run this. Real scans are dirtier than a generator knows how to imitate and
+the discrepancy mix is one a script chose, so read the numbers as a measurement of the
+method rather than a forecast of production accuracy.
 
-**Prompt injection is defended structurally and has not been tested against a live model.**
-Statement pages reach the model as rendered images and in no other form, so no text printed
-on a document is ever concatenated into a prompt. That is tested rather than asserted: a
-page carrying hostile instruction text produces byte identical request text to an ordinary
-page, and the schema repair retry sends only where validation broke, never the value that
-broke it. Model output is parsed against a fixed per document type schema and reaches no
-path, SQL, shell, URL, or HTML sink, so a value that comes back wrong stays a wrong value
-and never becomes an action. What is not tested is whether a live model obeys an
-instruction printed on a page it read correctly. No model has been run against a hostile
-document here, the corpus contains no adversarial documents, and no published number
-describes resistance to injection. The pipeline's answer to an obeyed instruction is
-arithmetic rather than trust: a total that contradicts its own line items fails the
-crossfoot check and is routed to review, which is tested against a fake client.
+**The scanned tier does not reproduce.** Two reasons. 17 of the 32 `scan_heavy` renders
+differ between runs at the same seed, because an Augraphy augmentation draws from a global
+random source the seeds do not reach. And the scanned tier was not read by one model: free
+tier quota ran out partway through the corpus, so of 22 scanned test documents 13 were read
+by the local model, 5 by `gemini-3.5-flash`, and 4 by a mixture. Everything else reproduces
+exactly, which `just repro` checks.
 
-**Two families are miscalibrated on test.** Reference at 0.093 expected calibration error
-is well over the 0.05 ceiling the contract sets, and text at 0.051 sits just past it. Platt
-scaling fit on the calibration split is specified as the remedy and has not been applied, so
-the confidence numbers those two families report are more confident than they have earned.
-Amount at 0.027 and date at 0.043 are inside the ceiling.
+**The confidence model is weakest exactly where it matters.** Reference sits at 0.093
+expected calibration error against a 0.05 ceiling, and Platt scaling is specified as the
+remedy and not applied. Every family missed the precision target its threshold was chosen
+for. Date and text send nothing to review at all, so the scorer separates nothing there,
+and their precision holds up only because the reader abstains on hard pages rather than
+guessing. Reference on heavy scans carries almost the entire review burden.
 
-**Every family missed its precision target on held out data.** Thresholds were chosen on
-calibration to hit 99.5 percent for amounts and references, 99 for dates, 97 for text; test
-delivered 96.38, 94.06, 98.80 and 96.37. Thresholds chosen on 52 calibration documents are
-a small sample doing a load bearing job, and the gap between the promise and the delivery is
-drawn as an arrow on the sweep figure rather than left to be discovered.
+**End to end reconciliation precision is poor.** 150 false detections against 51 true,
+almost all of one kind: a missed statement line leaves its ledger entry looking unclaimed.
+Recall degrades gracefully under extraction error and precision does not. 91 percent of the
+injected dollars are still recovered, because the large discrepancies sit on lines that
+were read correctly.
 
-**End to end reconciliation precision is poor.** 150 false detections against 51 true. A
-reviewer working that queue by dollar rank would still find real money first, and 91 percent
-of the injected dollars are recovered, but the queue is mostly noise, and the noise is a
-downstream symptom of missed extractions rather than a matching bug.
-
-**The reference operating point is barely an operating point.** Sending more than two
-fields in three to a human is not automation, and the family still misses one accepted field
-in seventeen. What would fix it is a per character transcription confidence from the vision
-model, which the current response schema does not ask for.
-
-**Date and text never send anything to review.** Both thresholds sit below every confidence
-in their family, so the scorer separates nothing there. Their precision numbers hold up only
-because the reader abstains on hard pages instead of guessing, and abstention is not
-something the confidence model earned.
-
-**Cost is not in a committed scorecard,** the price table entries are marked unverified,
-and the local model's price is an equivalence rather than a measurement.
+**Prompt injection is defended structurally, not empirically.** Pages reach the model as
+images and no page text is ever concatenated into a prompt, which is tested directly. What
+is untested is whether a live model obeys an instruction printed on a page it read
+correctly. The pipeline's answer to that is arithmetic rather than trust: a total that
+contradicts its own lines fails the crossfoot check and goes to review.
 
 **Single operator tool.** No authentication, no multi tenancy, and the review database is
 rebuilt from the dataset rather than migrated.

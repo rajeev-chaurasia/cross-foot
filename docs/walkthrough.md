@@ -160,8 +160,10 @@ crossfoot serve --dataset data/dataset --port 8000
 
 The scanned tier needs a vision model. Point `CROSSFOOT_LLM_BASE_URL` at any
 OpenAI compatible endpoint, local or hosted, and rerun `extract` with
-`--mode live`. The published numbers were produced against a local
-`qwen2.5vl:7b` served by Ollama, after free tier quota ran out mid corpus.
+`--mode live`. The published run used more than one: free tier quota ran out
+partway through the corpus, so of the 22 scanned test documents, 13 were read by
+a local `qwen2.5vl` alone, 5 by `gemini-3.5-flash` alone, and 4 by a mixture.
+The scorecard names every model it called.
 
 Run `just model` first if you serve it locally. Ollama's default context is
 4096 tokens, which is enough for the prompt and most of an answer but not for

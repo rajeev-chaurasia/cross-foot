@@ -33,5 +33,12 @@ probe:
 model:
     ollama create qwen2.5vl-crossfoot:7b -f ollama/qwen2.5vl-crossfoot.Modelfile
 
+# Regenerate the corpus from the published seed and check the deterministic tiers
+# against the committed scorecard. Writes to its own directory so the corpus the
+# published extractions were read from is never overwritten.
+repro dataset="data/repro":
+    uv run crossfoot gen --seed 42 --out {{dataset}}
+    uv run python scripts/repro_check.py {{dataset}}
+
 web:
     cd frontend; npm run dev
