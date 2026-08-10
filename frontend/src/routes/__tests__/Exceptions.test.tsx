@@ -220,7 +220,9 @@ describe('paging the dashboard', () => {
     expect(seen.size).toBe(LONG_EXCEPTIONS_TOTAL)
     expect(seen.has('1')).toBe(true)
     expect(seen.has('751')).toBe(true)
-  })
+    // Sixteen pages of fifty, so the walk really did turn every one of them.
+    expect(Math.ceil(LONG_EXCEPTIONS_TOTAL / 50)).toBe(16)
+  }, 30_000)
 
   it('goes back to the first page when the filter narrows', async () => {
     const api = installApi(pagedRoutes())

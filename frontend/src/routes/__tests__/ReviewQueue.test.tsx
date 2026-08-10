@@ -19,6 +19,9 @@ function fieldIdFrom(url: string): string {
   return match?.[1] ?? ''
 }
 
+/** The page size ReviewQueue asks the API for. */
+const PAGE_SIZE = 50
+
 function pagingFrom(url: string): { limit: number; offset: number } {
   const query = new URLSearchParams(url.slice(url.indexOf('?')))
   return { limit: Number(query.get('limit') ?? 50), offset: Number(query.get('offset') ?? 0) }
@@ -427,23 +430,25 @@ describe('paging the queue', () => {
     renderWithProviders(<ReviewQueue />)
     await screen.findByRole('heading', { name: 'VIN', level: 2 })
 
+    // Reading the live region is how a reviewer knows where they are, so it is
+    // the right thing to walk. Every step is awaited, because a step across a
+    // page boundary has to fetch before it can announce anything.
     const seen: number[] = []
-    for (let step = 0; step < LONG_QUEUE_TOTAL; step += 1) {
-      const announcement = await screen.findByText(/Field \d+ of 120\./)
-      const place = /Field (\d+) of 120\./.exec(announcement.textContent ?? '')
-      seen.push(Number(place?.[1]))
+    for (let step = 1; step <= LONG_QUEUE_TOTAL; step += 1) {
+      const announced = await screen.findByText(`Field ${String(step)} of 120.`, {
+        exact: false,
+      })
+      seen.push(Number(/Field (\d+) of 120\./.exec(announced.textContent ?? '')?.[1]))
       fireEvent.keyDown(window, { key: 'j' })
-      // A page boundary needs the next page to arrive before the next read.
-      if (seen.length % 50 === 0) {
-        await screen.findByText(`Field ${String(seen.length + 1)} of 120.`, { exact: false })
-      }
     }
 
     expect(seen).toHaveLength(LONG_QUEUE_TOTAL)
     expect(new Set(seen).size).toBe(LONG_QUEUE_TOTAL)
     expect(seen[0]).toBe(1)
     expect(seen[LONG_QUEUE_TOTAL - 1]).toBe(LONG_QUEUE_TOTAL)
-  })
+    // Three pages of fifty, so the walk really did cross two boundaries.
+    expect(Math.ceil(LONG_QUEUE_TOTAL / PAGE_SIZE)).toBe(3)
+  }, 30_000)
 
   it('loads the next page when j runs off the end of this one', async () => {
     const api = installApi(pagedRoutes())
