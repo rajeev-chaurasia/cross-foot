@@ -355,9 +355,11 @@ class _Records:
         self._add(
             ExceptionType.DUPLICATE,
             line=line,
-            match_key=KEY_SEPARATOR.join(key),
             dollar_impact_cents=line.amount_cents,
-            explanation="repeats the reference and amount of an already matched line",
+            explanation=(
+                f"repeats reference {KEY_SEPARATOR.join(key)} and the amount"
+                " of an already matched line"
+            ),
         )
 
     def missing_from_ledger(self, line: StatementLine) -> None:
@@ -431,18 +433,18 @@ class _Records:
         explanation: str,
         line: StatementLine | None = None,
         entry: LedgerEntry | None = None,
-        match_key: str | None = None,
         memo_amount_cents: int = 0,
     ) -> None:
+        line_no = line.line_no if line is not None else None
+        entry_id = entry.entry_id if entry is not None else None
         self.emitted.append(
             ExceptionRecord(
-                exception_id=f"exc-{self.mode}-{self.doc.doc_id}-{len(self.emitted) + 1:03d}",
+                exception_id=self._exception_id(exception_type, line_no, entry_id),
                 run_id=self.run_id,
                 exception_type=exception_type,
                 doc_id=self.doc.doc_id,
-                statement_line_no=line.line_no if line is not None else None,
-                ledger_entry_id=entry.entry_id if entry is not None else None,
-                match_key=match_key,
+                statement_line_no=line_no,
+                ledger_entry_id=entry_id,
                 statement_amount_cents=line.amount_cents if line is not None else None,
                 ledger_amount_cents=entry.amount_cents if entry is not None else None,
                 dollar_impact_cents=dollar_impact_cents,
@@ -451,3 +453,23 @@ class _Records:
                 detected_at=self.now,
             )
         )
+
+    def _exception_id(
+        self, exception_type: ExceptionType, line_no: int | None, entry_id: str | None
+    ) -> str:
+        """The finding's own identity, so a rerun names it the same thing.
+
+        Emission order cannot: clearing one finding renumbers every later one onto
+        a different finding, and a reviewer resolves by id. What a finding is, is
+        what it is about: its type, the statement line, and the ledger entry.
+
+        Unique within a document because a statement line carries at most one
+        exception and an unmatched ledger entry carries exactly one. Every part is
+        an id or an enum value, so the result stays safe in a URL path.
+        """
+        parts = (
+            f"line-{line_no}" if line_no is not None else "",
+            f"entry-{entry_id}" if entry_id is not None else "",
+        )
+        scope = "-".join(part for part in parts if part)
+        return f"exc-{self.mode}-{self.doc.doc_id}-{exception_type}-{scope}"

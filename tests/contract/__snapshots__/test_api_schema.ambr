@@ -32,7 +32,7 @@
           "type": "object"
         },
         "CorrectedItem": {
-          "description": "The updated item plus what the reviewer's value did to the document's exceptions.\n\nNull when the document cannot be reconciled: no ledger under the dataset\ndirectory, or an extraction that found no statement line to match. A\nreconciled document reports the change even when it is three zeroes, because\n\"nothing moved\" and \"nothing could be checked\" are different answers.",
+          "description": "The updated item plus what the reviewer's value did to the document's exceptions.\n\nNull when the document cannot be reconciled: no ledger under the dataset\ndirectory, or no blocking identity to match against. A reconciled document\nreports the change even when it is three zeroes, because \"nothing moved\" and\n\"nothing could be checked\" are different answers.",
           "properties": {
             "confidence": {
               "title": "Confidence",
@@ -357,17 +357,6 @@
                 }
               ],
               "title": "Ledger Entry Id"
-            },
-            "match_key": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Match Key"
             },
             "memo_amount_cents": {
               "default": 0,

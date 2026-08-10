@@ -44,6 +44,26 @@ SET status = :status, resolution = :resolution, resolved_at = :resolved_at
 WHERE exception_id = :exception_id
 """
 
+# The durable half of the same decision. The exceptions row is rebuilt from
+# scratch every time its document is reconciled again, so a note kept only there
+# is lost the moment the finding clears; this survives, keyed by the finding's
+# own id, and carries the amounts the reviewer decided about.
+_RECORD_RESOLUTION = """
+INSERT INTO exception_resolutions (
+    exception_id, resolution, resolved_at,
+    dollar_impact_cents, statement_amount_cents, ledger_amount_cents
+)
+SELECT exception_id, :resolution, :resolved_at,
+       dollar_impact_cents, statement_amount_cents, ledger_amount_cents
+FROM exceptions WHERE exception_id = :exception_id
+ON CONFLICT(exception_id) DO UPDATE SET
+    resolution = excluded.resolution,
+    resolved_at = excluded.resolved_at,
+    dollar_impact_cents = excluded.dollar_impact_cents,
+    statement_amount_cents = excluded.statement_amount_cents,
+    ledger_amount_cents = excluded.ledger_amount_cents
+"""
+
 
 def listing(
     connection: sqlite3.Connection,
@@ -80,13 +100,11 @@ def one(connection: sqlite3.Connection, exception_id: str) -> sqlite3.Row | None
 
 def resolve(connection: sqlite3.Connection, *, exception_id: str, resolution: str) -> None:
     """Close an exception. Idempotent: resolving twice records the later note."""
+    decided = {
+        "resolution": resolution,
+        "resolved_at": datetime.now(UTC).isoformat(),
+        "exception_id": exception_id,
+    }
     with connection:
-        connection.execute(
-            _RESOLVE,
-            {
-                "status": ExceptionStatus.RESOLVED.value,
-                "resolution": resolution,
-                "resolved_at": datetime.now(UTC).isoformat(),
-                "exception_id": exception_id,
-            },
-        )
+        connection.execute(_RECORD_RESOLUTION, decided)
+        connection.execute(_RESOLVE, decided | {"status": ExceptionStatus.RESOLVED.value})

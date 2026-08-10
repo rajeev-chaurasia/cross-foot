@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS fields (
     signals TEXT NOT NULL
 );
 
+-- exception_id is the finding's identity rather than its position in a run, so
+-- these rows can be rebuilt from a fresh reconciliation without a reviewer's
+-- decision landing on a different finding than the one they read.
 CREATE TABLE IF NOT EXISTS exceptions (
     exception_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
@@ -51,7 +54,6 @@ CREATE TABLE IF NOT EXISTS exceptions (
     doc_id TEXT,
     statement_line_no INTEGER,
     ledger_entry_id TEXT,
-    match_key TEXT,
     statement_amount_cents INTEGER,
     ledger_amount_cents INTEGER,
     dollar_impact_cents INTEGER NOT NULL,
@@ -61,6 +63,20 @@ CREATE TABLE IF NOT EXISTS exceptions (
     detected_at TEXT NOT NULL,
     resolution TEXT,
     resolved_at TEXT
+);
+
+-- A reviewer's decision, kept beside the exception rows rather than on them. A
+-- rerun replaces every exception a document owns, so a decision stored on the
+-- row is lost the moment its finding clears, even if the finding comes back.
+-- The three amounts are the facts the decision was made about: a re-derivation
+-- that moves them reopens the finding rather than closing money nobody looked at.
+CREATE TABLE IF NOT EXISTS exception_resolutions (
+    exception_id TEXT PRIMARY KEY,
+    resolution TEXT NOT NULL,
+    resolved_at TEXT NOT NULL,
+    dollar_impact_cents INTEGER NOT NULL,
+    statement_amount_cents INTEGER,
+    ledger_amount_cents INTEGER
 );
 
 -- Append only: a correction adds a row and never rewrites one, so the model's

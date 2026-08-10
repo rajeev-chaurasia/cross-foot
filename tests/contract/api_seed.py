@@ -74,7 +74,6 @@ CREATE TABLE IF NOT EXISTS exceptions (
     doc_id TEXT,
     statement_line_no INTEGER,
     ledger_entry_id TEXT,
-    match_key TEXT,
     statement_amount_cents INTEGER,
     ledger_amount_cents INTEGER,
     dollar_impact_cents INTEGER NOT NULL,
@@ -267,7 +266,6 @@ def insert_exception(
     doc_id: str | None = None,
     statement_line_no: int | None = None,
     ledger_entry_id: str | None = None,
-    match_key: str | None = None,
     statement_amount_cents: int | None = None,
     ledger_amount_cents: int | None = None,
     memo_amount_cents: int = 0,
@@ -277,10 +275,10 @@ def insert_exception(
         """
         INSERT INTO exceptions (
             exception_id, run_id, exception_type, doc_id, statement_line_no,
-            ledger_entry_id, match_key, statement_amount_cents,
+            ledger_entry_id, statement_amount_cents,
             ledger_amount_cents, dollar_impact_cents, memo_amount_cents,
             explanation, status, detected_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             exception_id,
@@ -289,7 +287,6 @@ def insert_exception(
             doc_id,
             statement_line_no,
             ledger_entry_id,
-            match_key,
             statement_amount_cents,
             ledger_amount_cents,
             dollar_impact_cents,

@@ -724,6 +724,27 @@ def test_the_item_caption_does_not_move_when_the_crop_is_fetched(client: TestCli
     assert _detail(client, field_id)["crop_kind"] == before
 
 
+def test_an_unforeseen_render_failure_costs_the_picture_and_nothing_else(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The item is a value, a signal breakdown and the rest of the line, plus a panel.
+
+    A render that fails for a reason nobody enumerated used to take the whole
+    route with it, so the reviewer lost the field instead of the picture.
+    """
+
+    def _vanish(**kwargs: Any) -> None:
+        raise FileNotFoundError("the page image went away mid render")
+
+    monkeypatch.setattr(crop_cache, "render_crop_file", _vanish)
+    payload = _detail(client, _vision_field(VISION_DOC, BAND_ROW, FieldName.LINE_AMOUNT))
+    assert payload["crop_kind"] is None
+    assert payload["crop_unavailable_reason"] == CropUnavailableReason.SOURCE_UNREADABLE.value
+    assert payload["value"] is not None
+    assert payload["signals"]
+    assert payload["document"]["doc_id"] == VISION_DOC
+
+
 def test_a_tabular_item_is_captioned_as_a_format_with_no_page_image(client: TestClient) -> None:
     payload = _detail(client, TABULAR_FIELD)
     assert payload["crop_kind"] is None

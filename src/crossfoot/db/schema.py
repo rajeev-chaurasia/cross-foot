@@ -4,6 +4,9 @@ Every statement in schema.sql is IF NOT EXISTS, so opening an existing database
 is a no-op. `ADDED_COLUMNS` covers the one case that is not: a database
 materialized before a column existed still has to serve, so the column is added
 rather than the file rebuilt.
+
+A column that goes away needs nothing here. Every write names its columns, so an
+older file keeps the dead one and no statement mentions it again.
 """
 
 from __future__ import annotations

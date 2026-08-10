@@ -198,9 +198,9 @@ class CorrectedItem(ReviewItem):
     """The updated item plus what the reviewer's value did to the document's exceptions.
 
     Null when the document cannot be reconciled: no ledger under the dataset
-    directory, or an extraction that found no statement line to match. A
-    reconciled document reports the change even when it is three zeroes, because
-    "nothing moved" and "nothing could be checked" are different answers.
+    directory, or no blocking identity to match against. A reconciled document
+    reports the change even when it is three zeroes, because "nothing moved" and
+    "nothing could be checked" are different answers.
     """
 
     model_config = ConfigDict(frozen=True)

@@ -11,7 +11,7 @@
 `dollars_at_risk_change_cents` is the change in the sum of absolute impact of the
 document's open exceptions, so a correction that clears risk is negative. Null
 when the document cannot be reconciled: no ledger under the dataset directory, or
-an extraction that found no statement line to match.
+no blocking identity to match against.
 
 The database is seeded through `crossfoot.db.schema` rather than the phase 1
 seeder, because the blocking identity a re-reconciliation reads back lives on the
@@ -302,6 +302,23 @@ def correct(client: TestClient, field_id: str, value: str) -> dict[str, Any]:
     return payload
 
 
+def exception_rows(db_path: Path, doc_id: str) -> list[tuple[str, str, int]]:
+    """(type, ledger entry, impact) for one document, straight out of the table."""
+    connection = connect(db_path)
+    try:
+        rows = connection.execute(
+            "SELECT exception_type, ledger_entry_id, dollar_impact_cents"
+            " FROM exceptions WHERE doc_id = ? ORDER BY exception_id",
+            (doc_id,),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [
+        (str(row["exception_type"]), str(row["ledger_entry_id"]), int(row["dollar_impact_cents"]))
+        for row in rows
+    ]
+
+
 def open_exceptions(client: TestClient) -> list[dict[str, Any]]:
     response = client.get("/api/exceptions", params={"status": ExceptionStatus.OPEN.value})
     assert response.status_code == 200
@@ -368,9 +385,49 @@ def test_a_document_with_no_ledger_reports_null_rather_than_erroring(
     ]
 
 
-def test_a_document_with_no_lines_reports_null(client: TestClient) -> None:
-    payload = correct(client, HEADER_TOTAL_FIELD, "999.00")
+def test_an_identity_nothing_can_read_answers_null_rather_than_500(
+    client: TestClient, db_path: Path
+) -> None:
+    """The correction has already landed by the time these columns are read.
+
+    A marque that is not a marque and a period start that is not a date leave a
+    document there is nothing to reconcile against, which is an answer. Raising
+    here answered a committed write with a 500 and no delta at all.
+    """
+    connection = connect(db_path)
+    try:
+        with connection:
+            connection.execute(
+                "UPDATE documents SET oem = ?, period_start = ? WHERE doc_id = ?",
+                ("ford", "April 2026", DOC_ID),
+            )
+    finally:
+        connection.close()
+    payload = correct(client, MISREAD_AMOUNT_FIELD, "100.00")
     assert payload["reconciliation"] is None
+    assert payload["status"] == ReviewStatus.HUMAN_CORRECTED.value
+
+
+def test_a_header_only_document_reconciles_the_way_the_build_reconciled_it(
+    client: TestClient, db_path: Path
+) -> None:
+    """A document with no lines still has a period, and a period still expects entries.
+
+    The build reconciles this document and the dashboard shows what it found, so
+    a route that answered "cannot be reconciled" was contradicting rows already
+    on screen.
+    """
+    payload = correct(client, HEADER_TOTAL_FIELD, "999.00")
+    assert payload["reconciliation"] == {
+        "exceptions_removed": 0,
+        "exceptions_added": 2,
+        # Both entries posted inside the period and no line claimed either.
+        "dollars_at_risk_change_cents": 350_00,
+    }
+    assert exception_rows(db_path, EMPTY_DOC_ID) == [
+        (ExceptionType.MISSING_FROM_STATEMENT.value, "led-1", -100_00),
+        (ExceptionType.MISSING_FROM_STATEMENT.value, "led-2", -250_00),
+    ]
 
 
 def test_a_resolved_exception_is_not_reopened_by_a_later_correction(client: TestClient) -> None:

@@ -19,7 +19,12 @@ class MatchedLine(BaseModel):
 
 class ExceptionRecord(BaseModel):
     """Every exception carries signed dollar impact; timing differences carry 0
-    plus a memo amount so the dashboard can still show the money involved."""
+    plus a memo amount so the dashboard can still show the money involved.
+
+    `exception_id` is derived from what the finding is about rather than from the
+    order it was emitted in, so re-reconciling a document names the same finding
+    the same thing and a reviewer resolving by id closes what they were reading.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -29,7 +34,6 @@ class ExceptionRecord(BaseModel):
     doc_id: str | None = None
     statement_line_no: int | None = None
     ledger_entry_id: str | None = None
-    match_key: str | None = None
     statement_amount_cents: int | None = None
     ledger_amount_cents: int | None = None
     dollar_impact_cents: int

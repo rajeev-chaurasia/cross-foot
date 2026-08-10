@@ -140,9 +140,14 @@ def _rereconcile(
 
     One document, never the corpus: the ledger is scanned once for this dealer
     and period and the other 200-odd statements are not touched.
+
+    What can be reconciled is the reconciler's own answer, never a second opinion
+    taken here: a document the build found exceptions on has to be a document a
+    correction can re-derive, or the dashboard and this route disagree about the
+    same rows.
     """
     book = ledger_book(paths.dataset_dir)
-    if book is None or not reconciliation.has_lines(connection, doc_id):
+    if book is None:
         return None
     with connection:
         return reconciliation.reconcile_document(
@@ -170,6 +175,11 @@ def _crop_caption(
         return None, CropUnavailableReason.SOURCE_UNREACHABLE
     except CropSourceError as error:
         return None, error.reason
+    except OSError:
+        # A render that fails for a reason nobody enumerated costs the picture and
+        # nothing else. The value, the signals and the rest of the line are still
+        # the item a reviewer has to work, so this route may not 500 over pixels.
+        return None, CropUnavailableReason.SOURCE_UNREADABLE
     return crop.kind, None
 
 
