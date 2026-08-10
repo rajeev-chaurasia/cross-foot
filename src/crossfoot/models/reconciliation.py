@@ -37,3 +37,18 @@ class ExceptionRecord(BaseModel):
     explanation: str
     status: ExceptionStatus = ExceptionStatus.OPEN
     detected_at: datetime
+
+
+class ReconciliationDelta(BaseModel):
+    """What re-reconciling one document did to the exceptions it owns.
+
+    `dollars_at_risk_change_cents` is the change in the sum of absolute impact of
+    the document's open exceptions, so a correction that clears risk reports a
+    negative number.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    exceptions_removed: int
+    exceptions_added: int
+    dollars_at_risk_change_cents: int

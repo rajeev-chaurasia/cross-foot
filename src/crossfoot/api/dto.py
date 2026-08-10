@@ -29,7 +29,7 @@ from crossfoot.constants import (
 )
 from crossfoot.extraction.normalize import format_cents, parse_amount_to_cents, parse_date
 from crossfoot.models.extraction import FieldSignals
-from crossfoot.models.reconciliation import ExceptionRecord
+from crossfoot.models.reconciliation import ExceptionRecord, ReconciliationDelta
 from crossfoot.models.scorecard import CalibrationBin, Scorecard, ThresholdPoint
 
 # SQLite binds an offset as a 64-bit integer, so a paged route has to refuse one
@@ -192,6 +192,20 @@ class ReviewItemDetail(ReviewItem):
             document=DocumentSummary.from_row(document),
             neighbors=tuple(ReviewItem.from_row(neighbor) for neighbor in neighbors),
         )
+
+
+class CorrectedItem(ReviewItem):
+    """The updated item plus what the reviewer's value did to the document's exceptions.
+
+    Null when the document cannot be reconciled: no ledger under the dataset
+    directory, or an extraction that found no statement line to match. A
+    reconciled document reports the change even when it is three zeroes, because
+    "nothing moved" and "nothing could be checked" are different answers.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    reconciliation: ReconciliationDelta | None
 
 
 class CorrectionRequest(BaseModel):

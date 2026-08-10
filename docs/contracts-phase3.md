@@ -24,7 +24,12 @@ they came from.
 SQLite, stdlib sqlite3, WAL, explicit SQL, no ORM, matching the repo's existing style.
 `crossfoot serve` reads a dataset directory plus its saved extractions and materializes:
 
-- `documents(doc_id, file_path, doc_type, quality_tier, route, split, error_kind)`
+- `documents(doc_id, file_path, doc_type, quality_tier, route, split, error_kind, dealer_id,
+  oem, period_start, period_end)`. The last four are the blocking identity: the facts the
+  reconciler matches on that no extractor reads off a page. In production a dealer, a
+  marque and a period are known at ingest because you know whose statement you are
+  processing, so they are stored at ingest and read back whenever the document has to be
+  reconciled again. Null for a file nothing could be extracted from.
 - `fields(field_id, doc_id, line_no, name, family, raw_text, value, value_cents,
   value_date, source, crop_kind, page, x0, y0, x1, y1, confidence, status)`
 - `exceptions(...)` mirroring `ExceptionRecord`
@@ -50,9 +55,22 @@ SQLite prefers that), pydantic DTOs in `api/dto.py`, no auth (single operator to
   the neighbouring fields on the same line
 - `POST /api/review/items/{field_id}/accept` -> status HUMAN_ACCEPTED, idempotent
 - `POST /api/review/items/{field_id}/correct` body `{"value": str, "reviewer": str}` ->
-  validates against the field family, appends a `corrections` row, sets
-  HUMAN_CORRECTED, returns the updated item. Rejects a value the family cannot parse
+  validates against the field family, appends a `corrections` row, sets HUMAN_CORRECTED,
+  then re-reconciles that one document and replaces its exception rows. Returns the updated
+  item plus `reconciliation`: `{"exceptions_removed": int, "exceptions_added": int,
+  "dollars_at_risk_change_cents": int}`, or null. Rejects a value the family cannot parse
   with 422 and a message naming the family.
+
+  `dollars_at_risk_change_cents` is the change in the sum of absolute impact of the
+  document's open exceptions, so a correction that clears risk is negative. `reconciliation`
+  is null when the document cannot be reconciled: no ledger under the dataset directory, no
+  statement line the extraction could build, or no blocking identity on the documents row.
+  Re-reconciliation is the same code the build runs, over the same rows, with the newest
+  correction standing in for each field's value. An exception a reviewer resolved keeps its
+  status and note when the rerun produces it again; findings are matched across runs by
+  type, statement line, ledger entry and match key, because `exception_id` numbers a
+  document's findings in emission order and renumbers when one clears. `accept` changes no
+  value and is unchanged.
 - `GET /api/crops/{doc_id}/{field_id}.png` -> lazily rendered crop, cached under
   `data/crops/`. Path segments are validated the same way manifest paths are; anything
   that escapes the crop root is a 400, never a file read.

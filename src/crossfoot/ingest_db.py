@@ -15,7 +15,14 @@ deterministic validator happened to cover. The step lives inside the build so
 
 Building over an existing database replaces the extraction and exception rows.
 Human decisions outrank any score: a field a reviewer accepted or corrected keeps
-its status and its confidence, and the corrections history is never touched.
+its status and its confidence, an exception a reviewer resolved stays resolved,
+and the corrections history is never touched.
+
+Reconciliation runs over the rows this module just wrote, through the same
+`crossfoot.db.reconciliation` the review API runs after a correction, so the
+exceptions a build produces and the exceptions a correction produces come from
+one implementation. That is also why each document's blocking identity lands on
+its `documents` row: the serving path has no manifest to ask.
 """
 
 from __future__ import annotations
@@ -28,24 +35,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from crossfoot.confidence.calibration import FIT_SPLIT, THRESHOLD_SPLIT
-from crossfoot.constants import ExtractionRoute, IngestErrorKind, ReconMode, ReviewStatus, SplitName
-from crossfoot.db import connect, thresholds
+from crossfoot.constants import ExtractionRoute, IngestErrorKind, ReviewStatus, SplitName
+from crossfoot.db import connect, reconciliation, thresholds
 from crossfoot.db.schema import ensure_schema
 from crossfoot.evals.metrics import field_is_correct
 from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
-from crossfoot.evals.runner import (
-    load_ledger,
-    load_manifest,
-    split_records,
-    statement_from_extraction,
-)
+from crossfoot.evals.runner import load_ledger, load_manifest, split_records
 from crossfoot.extraction.router import route_file
 from crossfoot.models.extraction import ExtractedDocument, ExtractedField
 from crossfoot.models.ledger import LedgerBook
 from crossfoot.models.manifest import ManifestRecord
-from crossfoot.models.reconciliation import ExceptionRecord
 from crossfoot.models.scorecard import ThresholdPoint
-from crossfoot.reconcile.engine import reconcile
 from crossfoot.scoring import FieldLabel, apply_confidence
 
 EXTRACTION_RUN_PREFIX = "extract"
@@ -55,8 +55,9 @@ RUN_ID_HASH_CHARS = 8
 
 _INSERT_DOCUMENT = """
 INSERT OR REPLACE INTO documents (
-    doc_id, file_path, doc_type, quality_tier, route, split, error_kind
-) VALUES (?, ?, ?, ?, ?, ?, ?)
+    doc_id, file_path, doc_type, quality_tier, route, split, error_kind,
+    dealer_id, oem, period_start, period_end
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 # crop_kind here is the extractor's own record of how it located a value, which
@@ -70,14 +71,6 @@ INSERT OR REPLACE INTO fields (
     value_cents, value_date, source, crop_kind, page,
     x0, y0, x1, y1, confidence, status, signals
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
-
-_INSERT_EXCEPTION = """
-INSERT OR REPLACE INTO exceptions (
-    exception_id, run_id, exception_type, doc_id, statement_line_no,
-    ledger_entry_id, match_key, statement_amount_cents, ledger_amount_cents,
-    dollar_impact_cents, memo_amount_cents, explanation, status, detected_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 # A field a human corrected stays corrected, however its row was rebuilt.
@@ -95,6 +88,7 @@ _SELECT_HUMAN = "SELECT field_id, status, confidence FROM fields WHERE status IN
 _RESTORE_HUMAN = "UPDATE fields SET status = ?, confidence = ? WHERE field_id = ?"
 
 _COUNT_AUTO_ACCEPTED = "SELECT COUNT(*) FROM fields WHERE status = ?"
+_COUNT_EXCEPTIONS = "SELECT COUNT(*) FROM exceptions"
 
 _COST_SCHEMA = "costs"
 _ATTACH_COSTS = f"ATTACH DATABASE ? AS {_COST_SCHEMA}"
@@ -243,6 +237,7 @@ def _write_documents(
     for record in records:
         document = extracted.get(record.doc_id)
         route, error_kind = _routing(record, document, dataset_dir)
+        truth = record.truth
         connection.execute(
             _INSERT_DOCUMENT,
             (
@@ -253,6 +248,14 @@ def _write_documents(
                 route.value,
                 None if record.split is None else record.split.value,
                 None if error_kind is None else error_kind.value,
+                # The blocking identity, stored because the serving path has to
+                # reconcile this document again with no manifest in reach. It is
+                # operational context, not an answer: in production a dealer, a
+                # marque and a period are known at ingest.
+                None if truth is None else truth.dealer_id,
+                None if truth is None else truth.oem.value,
+                None if truth is None else truth.period_start.isoformat(),
+                None if truth is None else truth.period_end.isoformat(),
             ),
         )
         if document is None:
@@ -266,25 +269,26 @@ def _write_documents(
 def _write_exceptions(
     connection: sqlite3.Connection,
     records: Sequence[ManifestRecord],
-    extracted: dict[str, ExtractedDocument],
+    extracted: Mapping[str, ExtractedDocument],
     book: LedgerBook,
     run_id: str,
 ) -> int:
-    """Reconcile every extracted document against the ledger and store what it found."""
+    """Reconcile every extracted document against the ledger and store what it found.
+
+    Reads back the rows written a moment ago rather than the extraction objects,
+    because `db.reconciliation` is the same code a correction runs later. Two
+    implementations of this would drift the day one of them learned something.
+    """
     now = datetime.now(UTC)
-    written = 0
     for record in records:
         document = extracted.get(record.doc_id)
         if document is None or document.route is ExtractionRoute.UNPROCESSABLE:
             continue
-        statement = statement_from_extraction(document, record)
-        if statement is None:
-            continue
-        result = reconcile(statement, book, mode=ReconMode.END_TO_END, run_id=run_id, now=now)
-        for exception in result.exceptions:
-            connection.execute(_INSERT_EXCEPTION, _exception_row(exception))
-            written += 1
-    return written
+        reconciliation.reconcile_document(
+            connection, doc_id=record.doc_id, book=book, run_id=run_id, now=now
+        )
+    (total,) = connection.execute(_COUNT_EXCEPTIONS).fetchone()
+    return int(total)
 
 
 def _copy_cost_ledger(connection: sqlite3.Connection, cost_db: Path) -> int:
@@ -346,23 +350,4 @@ def _field_row(field: ExtractedField) -> tuple[object, ...]:
         field.confidence,
         field.status.value,
         field.signals.model_dump_json(),
-    )
-
-
-def _exception_row(exception: ExceptionRecord) -> tuple[object, ...]:
-    return (
-        exception.exception_id,
-        exception.run_id,
-        exception.exception_type.value,
-        exception.doc_id,
-        exception.statement_line_no,
-        exception.ledger_entry_id,
-        exception.match_key,
-        exception.statement_amount_cents,
-        exception.ledger_amount_cents,
-        exception.dollar_impact_cents,
-        exception.memo_amount_cents,
-        exception.explanation,
-        exception.status.value,
-        exception.detected_at.isoformat(),
     )

@@ -229,6 +229,32 @@ export interface CorrectionRequest {
   reviewer: string
 }
 
+/**
+ * What a correction did to the document's open exceptions.
+ *
+ * `dollars_at_risk_change_cents` is the change in this document's open exposure,
+ * so a correction that clears risk is negative and one that uncovers a real
+ * discrepancy is positive. The two counts are published separately and stay
+ * separate on screen: netting them here would be the UI deriving a figure.
+ */
+export interface CorrectionReconciliation {
+  exceptions_removed: number
+  exceptions_added: number
+  dollars_at_risk_change_cents: number
+}
+
+/**
+ * The corrected field, plus what reconciling the document again turned up.
+ *
+ * `reconciliation` is null when the document could not be reconciled, which is a
+ * normal outcome rather than an error. It is optional as well as nullable
+ * because an API build from before the field existed simply omits it, and a
+ * missing field has to read as "nothing to say" instead of throwing.
+ */
+export interface CorrectionResponse extends ReviewItem {
+  reconciliation?: CorrectionReconciliation | null
+}
+
 // GET /api/exceptions and POST /api/exceptions/{exception_id}/resolve
 
 export interface ExceptionRecord {

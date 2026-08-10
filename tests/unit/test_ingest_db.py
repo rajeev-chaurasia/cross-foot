@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 from test_scoring import _corpus
 
 from crossfoot.api.app import create_app
-from crossfoot.constants import FieldFamily, ReviewStatus, SplitName
-from crossfoot.db import connect, review, thresholds
+from crossfoot.constants import ExceptionStatus, FieldFamily, Oem, ReviewStatus, SplitName
+from crossfoot.db import connect, exceptions, review, thresholds
 from crossfoot.generator.ledger_gen import generate_ledger
 from crossfoot.ingest_db import IngestCounts, build_database, extraction_run_id
 from crossfoot.models.manifest import DatasetManifest
@@ -168,3 +168,43 @@ def test_a_human_corrected_field_is_left_alone_by_a_rebuild(dataset: Path, tmp_p
         ReviewStatus.AUTO_ACCEPTED.value,
         ReviewStatus.NEEDS_REVIEW.value,
     }
+
+
+def test_a_build_stores_the_blocking_identity_on_every_document(
+    dataset: Path, tmp_path: Path
+) -> None:
+    """The serving path reconciles with no manifest in reach, so it reads these back."""
+    _build(dataset, tmp_path)
+    connection = connect(tmp_path / DB_NAME)
+    try:
+        rows = connection.execute("SELECT * FROM documents").fetchall()
+    finally:
+        connection.close()
+    assert rows
+    for row in rows:
+        assert str(row["dealer_id"]) == "dlr-northstar"
+        assert str(row["oem"]) == Oem.NORTHSTAR.value
+        assert str(row["period_start"]) == "2026-07-01"
+        assert str(row["period_end"]) == "2026-07-31"
+
+
+def test_a_resolved_exception_is_not_reopened_by_a_rebuild(dataset: Path, tmp_path: Path) -> None:
+    """The rule fields already follow: a human decision outranks a re-derivation."""
+    db_path = tmp_path / DB_NAME
+    _build(dataset, tmp_path)
+    connection = connect(db_path)
+    try:
+        (exception_id,) = connection.execute("SELECT exception_id FROM exceptions").fetchone()
+        exceptions.resolve(connection, exception_id=exception_id, resolution="written off")
+    finally:
+        connection.close()
+
+    _build(dataset, tmp_path)
+    connection = connect(db_path)
+    try:
+        row = exceptions.one(connection, str(exception_id))
+    finally:
+        connection.close()
+    assert row is not None
+    assert str(row["status"]) == ExceptionStatus.RESOLVED.value
+    assert str(row["resolution"]) == "written off"

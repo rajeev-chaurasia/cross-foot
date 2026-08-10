@@ -29,6 +29,7 @@ import { Link } from 'react-router-dom'
 import { useReviewItem, useReviewQueue, useReviewWrite, useSummary } from '../api/queries'
 import type { FieldFamily, ReviewItem, ReviewStatus, ReviewQueueParams } from '../api/types'
 import { FIELD_FAMILIES, REVIEW_STATUSES } from '../api/types'
+import { CorrectionOutcome } from '../components/CorrectionOutcome'
 import { Pager } from '../components/Pager'
 import { SignalBreakdown } from '../components/SignalBreakdown'
 import { ShortcutsBar, ShortcutsOverlay } from '../components/Shortcuts'
@@ -59,6 +60,13 @@ export function ReviewQueue() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [cropBroken, setCropBroken] = useState(false)
   const [cropZoomed, setCropZoomed] = useState(false)
+  // What the last correction was written against. Captured at save time because
+  // the reviewer has already moved on by the time the answer comes back, so the
+  // selected field is no longer the one the outcome is about.
+  const [lastCorrection, setLastCorrection] = useState<{
+    label: string
+    value: string
+  } | null>(null)
 
   const params: ReviewQueueParams = {
     limit: PAGE_SIZE,
@@ -189,6 +197,13 @@ export function ReviewQueue() {
       reviewerRef.current?.focus()
       return
     }
+    setLastCorrection({
+      label: describeField(current.name, current.line_no, current.doc_id),
+      value: draft,
+    })
+    // Fired, not awaited. The queue advances on the next line so the keyboard
+    // flow never waits on the round trip, and the outcome panel reports back
+    // whenever the server has finished reconciling the document.
     correct.mutate({ fieldId: current.field_id, value: draft, reviewer: namedReviewer })
     advance()
   }
@@ -384,6 +399,15 @@ export function ReviewQueue() {
           The queue could not be loaded. {queue.error.message}
         </p>
       )}
+
+      {/* Above the grid rather than inside a panel, so moving to the next field
+          does not take the answer away with it. */}
+      <CorrectionOutcome
+        status={correct.status}
+        fieldLabel={lastCorrection?.label ?? null}
+        value={lastCorrection?.value ?? null}
+        reconciliation={correct.data?.reconciliation}
+      />
 
       <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[15rem_minmax(0,1.35fr)_minmax(0,1fr)]">
         <nav className={`${CARD} flex flex-col p-2`} aria-label="Queue">

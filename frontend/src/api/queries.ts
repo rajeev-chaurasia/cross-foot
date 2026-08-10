@@ -27,6 +27,7 @@ import {
 } from './client'
 import type {
   CorrectionRequest,
+  CorrectionResponse,
   ExceptionListParams,
   ExceptionListResponse,
   ExceptionRecord,
@@ -97,7 +98,7 @@ function patchItem(item: ReviewItem, patch: Partial<ReviewItem>): ReviewItem {
 
 export function useReviewWrite(): {
   accept: UseMutationResult<ReviewItem, Error, string>
-  correct: UseMutationResult<ReviewItem, Error, { fieldId: string } & CorrectionRequest>
+  correct: UseMutationResult<CorrectionResponse, Error, { fieldId: string } & CorrectionRequest>
 } {
   const client = useQueryClient()
 
@@ -164,7 +165,7 @@ export function useReviewWrite(): {
   })
 
   const correct = useMutation<
-    ReviewItem,
+    CorrectionResponse,
     Error,
     { fieldId: string } & CorrectionRequest,
     ReviewSnapshot
@@ -177,6 +178,10 @@ export function useReviewWrite(): {
     },
     onSettled: (_data, _error, { fieldId }) => {
       settle(fieldId)
+      // A correction reconciles the document again, so the exceptions listing
+      // and the dollars at risk beside it are both stale. `settle` has already
+      // dropped the summary, which is where both tiles read their counts.
+      void client.invalidateQueries({ queryKey: queryKeys.exceptionsRoot })
     },
   })
 

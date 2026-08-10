@@ -19,6 +19,10 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("exceptions", "resolution", "TEXT"),
     ("exceptions", "resolved_at", "TEXT"),
+    ("documents", "dealer_id", "TEXT"),
+    ("documents", "oem", "TEXT"),
+    ("documents", "period_start", "TEXT"),
+    ("documents", "period_end", "TEXT"),
 )
 
 

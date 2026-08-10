@@ -55,6 +55,30 @@ function routes(overrides: ApiRoute[] = []): ApiRoute[] {
   ]
 }
 
+/**
+ * A correct route that answers with the reconciliation the case under test wants.
+ *
+ * Passing nothing omits the field entirely, which is the API build the backend
+ * ships mid change; passing null is the contract's "could not be reconciled".
+ */
+const OMITTED = Symbol('no reconciliation field at all')
+
+function correctRoute(reconciliation: unknown = OMITTED): ApiRoute {
+  return {
+    method: 'POST',
+    match: /\/correct$/,
+    body: (url: string, init: RequestInit | undefined) => {
+      const saved = {
+        ...VIN_ITEM,
+        field_id: fieldIdFrom(url),
+        status: 'human_corrected',
+        value: JSON.parse(String(init?.body)).value as string,
+      }
+      return reconciliation === OMITTED ? saved : { ...saved, reconciliation }
+    },
+  }
+}
+
 /** A queue of 120 fields, served a page at a time from whatever the UI asked for. */
 function pagedRoutes(): ApiRoute[] {
   return [
@@ -593,6 +617,318 @@ describe('who a correction is attributed to', () => {
     await waitFor(() => {
       const correction = api.calls.find((call) => call.url.endsWith('/correct'))
       expect((correction?.body as { reviewer: string } | undefined)?.reviewer).toBe('Dana Okafor')
+    })
+  })
+})
+
+// C1. A reviewer corrected a misread amount and nothing told them it mattered.
+// Clearing disputed money is the entire product and it was invisible.
+describe('what a correction turns out to have been worth', () => {
+  async function save(value = '1G1ZT53826F109149'): Promise<void> {
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+    await typeReviewer('R Chaurasia')
+    fireEvent.keyDown(window, { key: 'c' })
+    const input = screen.getByLabelText(/Correction/)
+    fireEvent.change(input, { target: { value } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+  }
+
+  it('counts a single cleared exception in the singular', async () => {
+    installApi(
+      routes([
+        correctRoute({
+          exceptions_removed: 1,
+          exceptions_added: 0,
+          dollars_at_risk_change_cents: -184_000,
+        }),
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await save()
+
+    const outcome = await screen.findByRole('status')
+    expect(outcome.textContent).toContain(
+      'Cleared 1 exception. $1,840.00 less at risk on this statement.',
+    )
+    expect(outcome.textContent).not.toContain('1 exceptions')
+  })
+
+  it('counts several cleared exceptions in the plural', async () => {
+    installApi(
+      routes([
+        correctRoute({
+          exceptions_removed: 4,
+          exceptions_added: 0,
+          dollars_at_risk_change_cents: -367_000,
+        }),
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await save()
+
+    expect(
+      await screen.findByText(
+        'Cleared 4 exceptions. $3,670.00 less at risk on this statement.',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('says money left the statement when the change is negative', async () => {
+    installApi(
+      routes([
+        correctRoute({
+          exceptions_removed: 2,
+          exceptions_added: 0,
+          dollars_at_risk_change_cents: -184_000,
+        }),
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await save()
+
+    const outcome = await screen.findByRole('status')
+    expect(outcome.textContent).toContain('Your correction cleared exceptions')
+    expect(outcome.textContent).toContain('$1,840.00 less at risk')
+    // The wire value is negative; the minus sign is carried by the words.
+    expect(outcome.textContent).not.toContain('-$1,840.00')
+  })
+
+  it('treats a positive change as money found rather than damage done', async () => {
+    // Uncovering a real discrepancy is the product working, so the sentence
+    // must not read as the reviewer having made the statement worse.
+    installApi(
+      routes([
+        correctRoute({
+          exceptions_removed: 0,
+          exceptions_added: 1,
+          dollars_at_risk_change_cents: 184_000,
+        }),
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await save()
+
+    const outcome = await screen.findByRole('status')
+    expect(outcome.textContent).toContain('Your correction found disputed money')
+    expect(outcome.textContent).toContain(
+      'Opened 1 exception. $1,840.00 more at risk on this statement, ' +
+        'money the earlier reading missed.',
+    )
+  })
+
+  it('says nothing about reconciliation when the document could not be reconciled', async () => {
+    installApi(routes([correctRoute(null)]))
+    renderWithProviders(<ReviewQueue />)
+    await save()
+
+    const outcome = await screen.findByRole('status')
+    expect(outcome.textContent).toContain('Correction saved')
+    // Not an error, and not a row of zeros standing in for an answer.
+    expect(outcome.textContent).not.toContain('0 exceptions')
+    expect(outcome.textContent).not.toContain('$0.00')
+    expect(outcome.textContent).not.toContain('at risk')
+  })
+
+  it('survives an API build that has no reconciliation field yet', async () => {
+    installApi(routes([correctRoute()]))
+    renderWithProviders(<ReviewQueue />)
+    await save()
+
+    const outcome = await screen.findByRole('status')
+    expect(outcome.textContent).toContain('Correction saved')
+    expect(outcome.textContent).not.toContain('$0.00')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('says plainly when the correction changed nothing', async () => {
+    installApi(
+      routes([
+        correctRoute({
+          exceptions_removed: 0,
+          exceptions_added: 0,
+          dollars_at_risk_change_cents: 0,
+        }),
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await save()
+
+    const outcome = await screen.findByRole('status')
+    expect(outcome.textContent).toContain('Nothing on this statement changed')
+    expect(outcome.textContent).toContain(
+      'No exceptions opened or closed, and no change to the money at risk.',
+    )
+  })
+
+  it('names the field the outcome belongs to, not the one now on screen', async () => {
+    installApi(
+      routes([
+        correctRoute({
+          exceptions_removed: 1,
+          exceptions_added: 0,
+          dollars_at_risk_change_cents: -184_000,
+        }),
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await save()
+
+    // Saving advances to the next field, so the panel has to say which field it
+    // is reporting on or it reads as a claim about the one in view.
+    await screen.findByRole('heading', { name: 'Line amount', level: 2 })
+    const outcome = await screen.findByRole('status')
+    expect(outcome.textContent).toContain(
+      'VIN on line 1 of Meridian floorplan statement, June 2026, document 2',
+    )
+    expect(outcome.textContent).toContain('1G1ZT53826F109149')
+  })
+
+  it('claims no outcome at all when the API refuses the correction', async () => {
+    installApi(
+      routes([
+        {
+          method: 'POST',
+          match: /\/correct$/,
+          status: 422,
+          body: { detail: 'value is not parseable for family reference' },
+        },
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await save('not a vin')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('value is not parseable for family reference')
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.queryByText('Correction saved')).toBeNull()
+  })
+
+  it('stays on screen while the reviewer keeps moving through the queue', async () => {
+    // A toast is gone before someone working with j and a can read it.
+    installApi(
+      routes([
+        correctRoute({
+          exceptions_removed: 1,
+          exceptions_added: 0,
+          dollars_at_risk_change_cents: -184_000,
+        }),
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await save()
+    await screen.findByText(/Cleared 1 exception\./)
+
+    fireEvent.keyDown(window, { key: 'j' })
+    await screen.findByRole('heading', { name: 'Claim number', level: 2 })
+    fireEvent.keyDown(window, { key: 'k' })
+    await screen.findByRole('heading', { name: 'Line amount', level: 2 })
+
+    expect(screen.getByText(/Cleared 1 exception\./)).toBeTruthy()
+  })
+})
+
+describe('a correction that takes its time', () => {
+  /** A correct route that does not answer until the test lets it. */
+  function heldCorrectRoute(): { route: ApiRoute; release: () => void } {
+    let release = (): void => {}
+    const held = new Promise<void>((resolve) => {
+      release = () => {
+        resolve()
+      }
+    })
+    return {
+      release: () => {
+        release()
+      },
+      route: {
+        method: 'POST',
+        match: /\/correct$/,
+        body: (url: string, init: RequestInit | undefined) =>
+          held.then(() => ({
+            ...VIN_ITEM,
+            field_id: fieldIdFrom(url),
+            status: 'human_corrected',
+            value: JSON.parse(String(init?.body)).value as string,
+            reconciliation: {
+              exceptions_removed: 1,
+              exceptions_added: 0,
+              dollars_at_risk_change_cents: -184_000,
+            },
+          })),
+      },
+    }
+  }
+
+  it('advances the queue without waiting for the server to reconcile', async () => {
+    const held = heldCorrectRoute()
+    installApi(routes([held.route]))
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+    await typeReviewer('R Chaurasia')
+
+    fireEvent.keyDown(window, { key: 'c' })
+    const input = screen.getByLabelText(/Correction/)
+    fireEvent.change(input, { target: { value: '1G1ZT53826F109149' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    // The round trip is still open and the reviewer is already on the next field.
+    expect(await screen.findByRole('heading', { name: 'Line amount', level: 2 })).toBeTruthy()
+
+    held.release()
+    expect(await screen.findByText(/Cleared 1 exception\./)).toBeTruthy()
+  })
+
+  it('says it is still checking rather than showing nothing at all', async () => {
+    const held = heldCorrectRoute()
+    installApi(routes([held.route]))
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+    await typeReviewer('R Chaurasia')
+
+    fireEvent.keyDown(window, { key: 'c' })
+    const input = screen.getByLabelText(/Correction/)
+    fireEvent.change(input, { target: { value: '1G1ZT53826F109149' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    const outcome = await screen.findByRole('status')
+    expect(outcome.textContent).toContain('Saving your correction')
+    expect(outcome.textContent).toContain('Checking what it changed on this statement.')
+
+    held.release()
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('Cleared 1 exception.')
+    })
+  })
+})
+
+// C4. Dollars at risk and the open exception count both move on a correction,
+// and both are read from the summary the tiles print.
+describe('the numbers a correction makes stale', () => {
+  it('refetches the summary after a correction lands', async () => {
+    const api = installApi(
+      routes([
+        correctRoute({
+          exceptions_removed: 1,
+          exceptions_added: 0,
+          dollars_at_risk_change_cents: -184_000,
+        }),
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+    await typeReviewer('R Chaurasia')
+
+    const before = api.calls.filter((call) => call.url.startsWith('/api/stats/summary')).length
+
+    fireEvent.keyDown(window, { key: 'c' })
+    const input = screen.getByLabelText(/Correction/)
+    fireEvent.change(input, { target: { value: '1G1ZT53826F109149' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await screen.findByText(/Cleared 1 exception\./)
+
+    await waitFor(() => {
+      const after = api.calls.filter((call) => call.url.startsWith('/api/stats/summary')).length
+      expect(after).toBeGreaterThan(before)
     })
   })
 })

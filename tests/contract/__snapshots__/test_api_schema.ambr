@@ -31,6 +31,94 @@
           "title": "CalibrationBin",
           "type": "object"
         },
+        "CorrectedItem": {
+          "description": "The updated item plus what the reviewer's value did to the document's exceptions.\n\nNull when the document cannot be reconciled: no ledger under the dataset\ndirectory, or an extraction that found no statement line to match. A\nreconciled document reports the change even when it is three zeroes, because\n\"nothing moved\" and \"nothing could be checked\" are different answers.",
+          "properties": {
+            "confidence": {
+              "title": "Confidence",
+              "type": "number"
+            },
+            "crop_url": {
+              "title": "Crop Url",
+              "type": "string"
+            },
+            "doc_id": {
+              "title": "Doc Id",
+              "type": "string"
+            },
+            "family": {
+              "$ref": "#/components/schemas/FieldFamily"
+            },
+            "field_id": {
+              "title": "Field Id",
+              "type": "string"
+            },
+            "line_no": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line No"
+            },
+            "name": {
+              "$ref": "#/components/schemas/FieldName"
+            },
+            "raw_text": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Raw Text"
+            },
+            "reconciliation": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReconciliationDelta"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "$ref": "#/components/schemas/ReviewStatus"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Value"
+            }
+          },
+          "required": [
+            "field_id",
+            "doc_id",
+            "line_no",
+            "name",
+            "family",
+            "raw_text",
+            "value",
+            "confidence",
+            "status",
+            "crop_url",
+            "reconciliation"
+          ],
+          "title": "CorrectedItem",
+          "type": "object"
+        },
         "CorrectionRequest": {
           "description": "A reviewer's replacement value, validated against the field's family.",
           "properties": {
@@ -743,6 +831,30 @@
           ],
           "title": "ReconMode",
           "type": "string"
+        },
+        "ReconciliationDelta": {
+          "description": "What re-reconciling one document did to the exceptions it owns.\n\n`dollars_at_risk_change_cents` is the change in the sum of absolute impact of\nthe document's open exceptions, so a correction that clears risk reports a\nnegative number.",
+          "properties": {
+            "dollars_at_risk_change_cents": {
+              "title": "Dollars At Risk Change Cents",
+              "type": "integer"
+            },
+            "exceptions_added": {
+              "title": "Exceptions Added",
+              "type": "integer"
+            },
+            "exceptions_removed": {
+              "title": "Exceptions Removed",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "exceptions_removed",
+            "exceptions_added",
+            "dollars_at_risk_change_cents"
+          ],
+          "title": "ReconciliationDelta",
+          "type": "object"
         },
         "ResolutionRequest": {
           "description": "What a reviewer did about an exception, recorded as they close it.",
@@ -1667,7 +1779,7 @@
       },
       "/api/review/items/{field_id}/correct": {
         "post": {
-          "description": "Replace a value with the reviewer's reading, appending to its history.",
+          "description": "Replace a value with the reviewer's reading, then re-reconcile its document.\n\nThe loop closes here: the exceptions on the dashboard are re-derived from\nwhat the human just decided rather than from the reading they overruled.",
           "operationId": "correct_item_api_review_items__field_id__correct_post",
           "parameters": [
             {
@@ -1697,7 +1809,7 @@
               "content": {
                 "application/json": {
                   "schema": {
-                    "$ref": "#/components/schemas/ReviewItem"
+                    "$ref": "#/components/schemas/CorrectedItem"
                   }
                 }
               },

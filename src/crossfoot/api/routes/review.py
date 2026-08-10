@@ -13,6 +13,7 @@ and the page is rasterized once rather than twice.
 from __future__ import annotations
 
 import sqlite3
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
@@ -22,15 +23,18 @@ from crossfoot.api.crop_render import CropSourceError
 from crossfoot.api.deps import ApiPaths, Connection, Paths
 from crossfoot.api.dto import (
     MAX_PAGE_OFFSET,
+    CorrectedItem,
     CorrectionRequest,
     CropUnavailableReason,
     Page,
     ReviewItem,
     ReviewItemDetail,
 )
+from crossfoot.api.ledger import ledger_book
 from crossfoot.constants import CropKind, FieldFamily, QualityTier, ReviewStatus
-from crossfoot.db import documents, review
+from crossfoot.db import documents, reconciliation, review
 from crossfoot.evals.paths import UnsafeDatasetPathError
+from crossfoot.models.reconciliation import ReconciliationDelta
 
 router = APIRouter(tags=["review"])
 
@@ -107,9 +111,13 @@ def accept_item(connection: Connection, field_id: FieldId) -> ReviewItem:
 
 @router.post("/review/items/{field_id}/correct")
 def correct_item(
-    connection: Connection, field_id: FieldId, correction: CorrectionRequest
-) -> ReviewItem:
-    """Replace a value with the reviewer's reading, appending to its history."""
+    paths: Paths, connection: Connection, field_id: FieldId, correction: CorrectionRequest
+) -> CorrectedItem:
+    """Replace a value with the reviewer's reading, then re-reconcile its document.
+
+    The loop closes here: the exceptions on the dashboard are re-derived from
+    what the human just decided rather than from the reading they overruled.
+    """
     row = _require_field(connection, field_id)
     family = FieldFamily(row["family"])
     canonical = correction.canonical_for(family)
@@ -119,7 +127,31 @@ def correct_item(
             detail=UNPARSEABLE_DETAIL.format(value=correction.value, family=family.value),
         )
     review.correct(connection, field_id=field_id, new_value=canonical, reviewer=correction.reviewer)
-    return ReviewItem.from_row(_require_field(connection, field_id))
+    return CorrectedItem(
+        **ReviewItem.from_row(_require_field(connection, field_id)).model_dump(),
+        reconciliation=_rereconcile(paths, connection, str(row["doc_id"])),
+    )
+
+
+def _rereconcile(
+    paths: ApiPaths, connection: sqlite3.Connection, doc_id: str
+) -> ReconciliationDelta | None:
+    """Re-derive one document's exceptions, or say why there was nothing to derive.
+
+    One document, never the corpus: the ledger is scanned once for this dealer
+    and period and the other 200-odd statements are not touched.
+    """
+    book = ledger_book(paths.dataset_dir)
+    if book is None or not reconciliation.has_lines(connection, doc_id):
+        return None
+    with connection:
+        return reconciliation.reconcile_document(
+            connection,
+            doc_id=doc_id,
+            book=book,
+            run_id=reconciliation.run_id_for(connection, doc_id),
+            now=datetime.now(UTC),
+        )
 
 
 def _crop_caption(

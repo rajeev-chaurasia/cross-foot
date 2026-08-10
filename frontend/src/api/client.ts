@@ -8,6 +8,7 @@
 
 import type {
   CorrectionRequest,
+  CorrectionResponse,
   ExceptionListParams,
   ExceptionListResponse,
   ExceptionRecord,
@@ -100,8 +101,11 @@ export function acceptReviewItem(fieldId: string): Promise<ReviewItem> {
 export function correctReviewItem(
   fieldId: string,
   correction: CorrectionRequest,
-): Promise<ReviewItem> {
-  return post<ReviewItem>(`/review/items/${encodeURIComponent(fieldId)}/correct`, correction)
+): Promise<CorrectionResponse> {
+  return post<CorrectionResponse>(
+    `/review/items/${encodeURIComponent(fieldId)}/correct`,
+    correction,
+  )
 }
 
 export function getExceptions(params: ExceptionListParams = {}): Promise<ExceptionListResponse> {

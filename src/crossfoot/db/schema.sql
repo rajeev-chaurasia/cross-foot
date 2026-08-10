@@ -3,6 +3,11 @@
 -- binds: fields.signals holding the FieldSignals JSON, exceptions.resolution and
 -- exceptions.resolved_at, and phase 2's llm_calls living in the same file.
 
+-- dealer_id, oem, period_start and period_end are the blocking identity: the
+-- four facts the reconciler matches on that no extractor reads off a page. In
+-- production they are known at ingest because you know whose statement you are
+-- processing, so they are stored here and read back whenever the document has to
+-- be reconciled again. Null for a file nothing could be extracted from.
 CREATE TABLE IF NOT EXISTS documents (
     doc_id TEXT PRIMARY KEY,
     file_path TEXT NOT NULL,
@@ -10,7 +15,11 @@ CREATE TABLE IF NOT EXISTS documents (
     quality_tier TEXT NOT NULL,
     route TEXT NOT NULL,
     split TEXT,
-    error_kind TEXT
+    error_kind TEXT,
+    dealer_id TEXT,
+    oem TEXT,
+    period_start TEXT,
+    period_end TEXT
 );
 
 CREATE TABLE IF NOT EXISTS fields (
