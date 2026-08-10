@@ -377,12 +377,28 @@ uv run crossfoot reconcile --dataset data/dataset --split test --mode end_to_end
 uv run crossfoot plots
 ```
 
-Then the review surface:
+To run the product rather than the eval, build a corpus and extract it first. `serve` reads
+`data/dataset` and `data/extractions`, and neither is committed, so a clean checkout that
+skips these two steps gets a queue reporting zero fields:
 
 ```bash
+uv run crossfoot gen --seed 42 --out data/dataset
+uv run crossfoot extract --dataset data/dataset --split test --mode replay
 cd frontend && npm install && npm run build && cd ..
 uv run crossfoot serve --dataset data/dataset
 ```
+
+The extract step needs no key and no GPU, and it will report failures. Replay serves the
+vision path from committed cassettes and there are none for this corpus, so 31 of the 53
+test documents extract and the 22 scanned ones fail with `no cassette`. That is the
+expected result without a model, and it takes a few minutes because each failure exhausts
+its retries first. What you get is the deterministic tiers, which is enough for the queue,
+the dashboard and the correction loop to work end to end. Run the live extraction above to
+fill in the scanned documents.
+
+Note this is a different directory from `just repro`, which writes to `data/repro` on
+purpose so a reproduction attempt cannot overwrite the corpus the published extractions
+were read from.
 
 Honest scope. `crossfoot eval` scores the saved extractions from `crossfoot extract` when
 they exist and falls back to the offline routes when they do not, so running it on a fresh

@@ -210,6 +210,34 @@ Places where a number or a caption said more than it knew.
 - The rule that every number comes from the database or a committed scorecard also
   forbids dividing two published counts in the browser.
 
+## Clarifications (binding, added 2026-08-10 after the correction loop landed)
+
+- `exceptions.exception_id` is derived from what the finding is about, not from the order
+  it was emitted in: `exc-{mode}-{doc_id}-{exception_type}` followed by
+  `-line-{statement_line_no}` and `-entry-{ledger_entry_id}` for whichever the finding
+  carries. Unique within a document, because a statement line carries at most one exception
+  and an unmatched ledger entry exactly one. Re-reconciling names the same finding the same
+  thing, which is what lets `POST /api/exceptions/{exception_id}/resolve` close the finding
+  the reviewer was reading rather than whatever has since taken that number.
+- `exceptions.match_key` is removed, from the table and from `ExceptionRecord`. It existed
+  only to tell two findings apart across reruns, which the id now does. The repeated
+  reference a duplicate points at is named in its `explanation`.
+- `exception_resolutions(exception_id, resolution, resolved_at, dollar_impact_cents,
+  statement_amount_cents, ledger_amount_cents)` is added. A rerun replaces every exception
+  a document owns, so a decision recorded only on the row cannot survive the finding
+  clearing and coming back. The three amounts are the facts the decision was made about: a
+  re-derivation that moves any of them reopens the finding, because a note about a nine
+  dollar credit must not go on closing a million dollar discrepancy.
+- `exceptions_removed` and `exceptions_added` count open findings only, the same population
+  `dollars_at_risk_change_cents` measures. A resolved finding is not risk, so its arrival or
+  departure is not a change in risk.
+- Re-reconciling holds its write transaction across its reads. Concurrent corrections on one
+  document serialize, so the deltas they report sum to the move the dashboard shows, and a
+  resolve cannot be overwritten by a rerun already in flight.
+- A document whose extraction produced no statement line is still reconciled, because the
+  ledger entries its period expected are findings in their own right. The route and the
+  build agree on which documents have exceptions.
+
 ## Determinism and honesty rules
 
 - The review queue order is a total order: ascending confidence, then field_id. Two
