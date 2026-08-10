@@ -35,12 +35,12 @@ The review rate roughly doubled and precision fell about a point. Those are the 
 method actually earns, and what each signal cost is below under "What the honest signals
 cost".
 
-![Auto accept precision against review rate, per family](scorecards/20260809T233642-9a75185/threshold-sweep.png)
+![Auto accept precision against review rate, per family](scorecards/20260810T015308-e02d5a2/threshold-sweep.png)
 
 Filled marker: the operating point chosen on the calibration split. Open marker: what the
 held out test split reached at that same threshold. The arrow between them is the
 generalization gap, drawn rather than described. Figure and numbers both come from
-`scorecards/20260809T233642-9a75185/`.
+`scorecards/20260810T015308-e02d5a2/`.
 
 ## The problem
 
@@ -92,7 +92,7 @@ gen -> extract -> confidence -> reconcile -> review
 ## Results
 
 All figures below are the held out test split, from
-`scorecards/20260809T233642-9a75185/scorecard.json` unless named otherwise.
+`scorecards/20260810T015308-e02d5a2/scorecard.json` unless named otherwise.
 
 ### Per field accuracy by tier
 
@@ -105,7 +105,7 @@ Canonical accuracy, correct over the fields the artifact actually printed:
 | reference | 93.2 (287/308) | 53.5 (100/187) | **9.2 (13/142)** | 100.0 (90/90) | not extracted (0/62) |
 | text | 93.2 (151/162) | 58.7 (61/104) | 59.4 (38/64) | 100.0 (53/53) | not extracted (0/33) |
 
-![Per field accuracy by quality tier](scorecards/20260809T233642-9a75185/field-accuracy-heatmap.png)
+![Per field accuracy by quality tier](scorecards/20260810T015308-e02d5a2/field-accuracy-heatmap.png)
 
 The saved extractions this scorecard reads predate the XLSX extractor, so nothing read
 those 169 printed fields. They are drawn hatched and labelled absent rather than zero,
@@ -187,7 +187,7 @@ if any of them imports the manifest or mentions `manifest.json`. It also pins th
 lists of `FieldSignals` and `SignalContext`, because an import guard alone would not catch
 the leak coming back as a new field.
 
-![Reliability of the confidence score](scorecards/20260809T233642-9a75185/reliability-diagram.png)
+![Reliability of the confidence score](scorecards/20260810T015308-e02d5a2/reliability-diagram.png)
 
 Expected calibration error on test, computed from the committed calibration bins with
 `expected_calibration_error` in `src/crossfoot/confidence/calibration.py`: amount 0.042,
@@ -392,7 +392,7 @@ forecast of production accuracy.
 
 **No XLSX extractor in the published run.** The extractor exists, but the saved
 extractions this scorecard was computed from predate it, so 169 printed fields on the test
-split score zero in `scorecards/20260809T233642-9a75185/scorecard.json`. Four of the 53
+split score zero in `scorecards/20260810T015308-e02d5a2/scorecard.json`. Four of the 53
 test documents are XLSX, which is most of why that run served 47 of them. The tables above
 will only change when a new scorecard is committed to change them.
 
