@@ -1,7 +1,12 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { METRICS, METRICS_WITHOUT_MODELS, SUMMARY } from '../../test/fixtures'
+import {
+  METRICS,
+  METRICS_WITHOUT_MODELS,
+  METRICS_WITH_SEARCHED_THRESHOLD,
+  SUMMARY,
+} from '../../test/fixtures'
 import { installApi, renderWithProviders, type ApiRoute } from '../../test/harness'
 import { Metrics } from '../Metrics'
 
@@ -122,6 +127,34 @@ describe('the metrics page', () => {
     expect(within(last).getByText('5.34%')).toBeTruthy()
     // Every other body row is a calibration measurement and says so.
     expect(within(table).getAllByText('Calibration')).toHaveLength(4)
+  })
+
+  // A3. A searched threshold used to reach the accessible table as
+  // 0.9299335323598775, which is fifteen digits of noise around four of signal.
+  it('rounds every threshold it prints, on screen and for a screen reader', async () => {
+    installApi([
+      { match: /\/api\/stats\/summary/, body: SUMMARY },
+      { match: /\/api\/metrics/, body: METRICS_WITH_SEARCHED_THRESHOLD },
+    ])
+    const { container } = renderWithProviders(<Metrics />)
+    const table = await screen.findByRole('table', {
+      name: 'Threshold sweep for Reference fields',
+    })
+    expect(within(table).getAllByText('0.9299').length).toBeGreaterThan(0)
+    expect(container.textContent).not.toContain('0.9299335323598775')
+    expect(container.textContent).not.toContain('0.6864508663860327')
+  })
+
+  // A1. The tier stays here as an evaluation axis, and says that it is one.
+  it('frames the quality tier as something the dataset knows and a deployment does not', async () => {
+    installApi(routes())
+    renderWithProviders(<Metrics />)
+    const heading = await screen.findByText('Per field accuracy by quality tier')
+    const section = heading.closest('section') as HTMLElement
+    expect(
+      within(section).getByText(/Quality tier is an evaluation axis, not a product signal/),
+    ).toBeTruthy()
+    expect(within(section).getByText(/the review queue never shows one/)).toBeTruthy()
   })
 
   it('says so plainly when the API could not be reached', async () => {

@@ -7,10 +7,11 @@ sqlite3 directly; see api_seed for the schema.
 Pinned surface, binding in the phase 2 sense:
 
     GET /api/exceptions -> {"items": [exception, ...], "total": int}
-        query: type, status, min_impact_cents
+        query: type, status, min_impact_cents, limit, offset
         default rank: absolute dollar impact descending, so a large negative
         impact outranks a small positive one
         min_impact_cents compares the same absolute impact the ranking uses
+        total is the count the filter matched, never the size of the page
     POST /api/exceptions/{exception_id}/resolve {"resolution": str}
 
 The seeded impacts are deliberately distinct in absolute value, so the ranking
@@ -187,6 +188,48 @@ def test_listing_items_carry_the_frozen_exception_record_fields(client: TestClie
     assert first["memo_amount_cents"] == 0
     assert first["status"] == ExceptionStatus.OPEN.value
     assert first["explanation"] == "factory withheld 2500.00"
+
+
+# Paging. The dashboard cannot render 751 rows at once, so the listing pages the
+# same way the review queue does.
+
+
+def test_limit_and_offset_cut_the_ranked_listing_into_pages(client: TestClient) -> None:
+    assert listing_ids(client, limit=2, offset=0) == ["exc-3", "exc-5"]
+    assert listing_ids(client, limit=2, offset=2) == ["exc-1", "exc-2"]
+    assert listing_ids(client, limit=2, offset=4) == ["exc-4"]
+
+
+def test_walking_the_pages_visits_every_exception_exactly_once(client: TestClient) -> None:
+    walked: list[str] = []
+    offset = 0
+    while True:
+        page = listing_ids(client, limit=2, offset=offset)
+        if not page:
+            break
+        walked.extend(page)
+        offset += 2
+    assert walked == list(IMPACT_ORDER)
+
+
+def test_total_counts_the_filter_not_the_page(client: TestClient) -> None:
+    payload = listing(client, limit=1)
+    assert len(payload["items"]) == 1
+    assert payload["total"] == 5
+
+
+def test_an_offset_past_the_end_is_an_empty_page_and_not_an_error(client: TestClient) -> None:
+    payload = listing(client, limit=2, offset=99)
+    assert payload["items"] == []
+    assert payload["total"] == 5
+
+
+def test_a_limit_below_one_is_rejected(client: TestClient) -> None:
+    assert client.get("/api/exceptions", params={"limit": 0}).status_code == 422
+
+
+def test_a_negative_offset_is_rejected(client: TestClient) -> None:
+    assert client.get("/api/exceptions", params={"offset": -1}).status_code == 422
 
 
 # Filters.

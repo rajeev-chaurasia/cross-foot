@@ -59,9 +59,49 @@ export function formatShare(count: number, total: number, digits = 1): string {
   return formatRate(count / total, digits)
 }
 
-/** A confidence in 0..1 as the two decimal figure the API sent. */
+/**
+ * A confidence in 0..1 as a percentage.
+ *
+ * The API sends the full float, and a reviewer reading "97 percent auto accept
+ * precision" three panels away should not have to switch units to read the
+ * number in front of them. Same digits as every other rate on screen.
+ */
 export function formatConfidence(confidence: number): string {
-  return confidence.toFixed(2)
+  return formatRate(confidence, 1)
+}
+
+/**
+ * A confidence threshold as a fixed number of places.
+ *
+ * A threshold is chosen by a search over a grid and lands on a float like
+ * 0.9299335323598775. Four places identify the point without pretending the
+ * remaining digits mean anything, and it is the same number of places the
+ * figure captions print, so the two never disagree.
+ */
+export function formatThreshold(threshold: number): string {
+  return threshold.toFixed(4)
+}
+
+/**
+ * "Showing 1 to 50 of 1,901 fields", from counts the API sent.
+ *
+ * The offset and the page size are what the UI asked for and the total is what
+ * the filter matched, so nothing here is derived beyond putting one count after
+ * another. A page with no rows says so rather than reading "1 to 0".
+ */
+export function pageRangeLabel(
+  offset: number,
+  count: number,
+  total: number,
+  noun: string,
+): string {
+  if (count === 0) {
+    return `No ${noun} to show`
+  }
+  return (
+    `Showing ${GROUPER.format(offset + 1)} to ${GROUPER.format(offset + count)} ` +
+    `of ${GROUPER.format(total)} ${noun}`
+  )
 }
 
 /** snake_case wire vocabulary to something a dealership CFO reads without help. */

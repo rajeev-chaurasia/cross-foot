@@ -1348,7 +1348,7 @@
       },
       "/api/exceptions": {
         "get": {
-          "description": "Exceptions ranked by absolute dollar impact, largest first.",
+          "description": "One page of exceptions ranked by absolute dollar impact, largest first.",
           "operationId": "list_exceptions_api_exceptions_get",
           "parameters": [
             {
@@ -1415,6 +1415,29 @@
                 "$ref": "#/components/schemas/ExceptionSort",
                 "default": "impact",
                 "description": "Ranking, always total."
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 50,
+                "maximum": 500,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            {
+              "in": "query",
+              "name": "offset",
+              "required": false,
+              "schema": {
+                "default": 0,
+                "minimum": 0,
+                "title": "Offset",
+                "type": "integer"
               }
             }
           ],

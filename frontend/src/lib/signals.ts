@@ -4,6 +4,11 @@
  * The confidence itself is the API's number and is never recomputed here. What
  * this file does is name the evidence behind it, so the screen answers "why is
  * this field in front of me" instead of showing a bare score.
+ *
+ * Every label is written for the person working the queue, which in a dealership
+ * is a clerk and not the engineer who named the signal. The wire name travels
+ * beside the label as `code` rather than disappearing, so an engineer reading the
+ * same screen can still map a row back to `FieldSignals`.
  */
 
 import type { FieldFamily, FieldName, FieldSignals } from '../api/types'
@@ -13,7 +18,10 @@ export type SignalVerdict = 'pass' | 'fail' | 'unavailable' | 'info'
 
 export interface SignalRow {
   key: string
+  /** What the signal means, in the reviewer's words. */
   label: string
+  /** The name this signal has in FieldSignals, kept so the two can be mapped. */
+  code: string
   display: string
   verdict: SignalVerdict
   note: string
@@ -32,24 +40,24 @@ function display(value: number | null): string {
 
 function validatorNote(family: FieldFamily, name: FieldName, value: number | null): string {
   if (value === null) {
-    return 'No validator ran for this field.'
+    return 'No format check covers this kind of field.'
   }
   if (value >= 1) {
-    return 'The family validator accepted this value.'
+    return 'The format check accepted this value.'
   }
   if (name === 'vin') {
     return 'VIN check digit failed, so at least one character was read wrong.'
   }
   if (family === 'reference') {
-    return 'The reference validator rejected this value.'
+    return 'The format check rejected this reference number.'
   }
   if (family === 'amount') {
-    return 'The amount validator could not parse this value.'
+    return 'This value could not be read as an amount.'
   }
   if (family === 'date') {
-    return 'The date validator could not parse this value.'
+    return 'This value could not be read as a date.'
   }
-  return 'The family validator rejected this value.'
+  return 'The format check rejected this value.'
 }
 
 /** One row per signal, in the order a reviewer reads them. */
@@ -61,7 +69,8 @@ export function signalRows(
   const rows: SignalRow[] = [
     {
       key: 'self_consistency',
-      label: 'Self consistency',
+      label: 'Read twice, same answer',
+      code: 'self_consistency',
       display: display(signals.self_consistency),
       verdict: scoreVerdict(signals.self_consistency),
       note:
@@ -73,7 +82,8 @@ export function signalRows(
     },
     {
       key: 'det_llm_agreement',
-      label: 'Text and vision agreement',
+      label: 'The two readings agree',
+      code: 'det_llm_agreement',
       display: display(signals.det_llm_agreement),
       verdict: scoreVerdict(signals.det_llm_agreement),
       note:
@@ -85,26 +95,29 @@ export function signalRows(
     },
     {
       key: 'validator_pass',
-      label: 'Family validator',
+      label: 'Passes the format check',
+      code: 'validator_pass',
       display: display(signals.validator_pass),
       verdict: scoreVerdict(signals.validator_pass),
       note: validatorNote(family, name, signals.validator_pass),
     },
     {
       key: 'grammar_match',
-      label: 'Reference grammar',
+      label: "Matches the manufacturer's number format",
+      code: 'grammar_match',
       display: display(signals.grammar_match),
       verdict: scoreVerdict(signals.grammar_match),
       note:
         signals.grammar_match === null
-          ? 'This family has no reference grammar.'
+          ? 'This kind of field has no manufacturer number format to match.'
           : signals.grammar_match >= 1
-            ? 'The value matches the marque reference format.'
-            : 'The value does not match the marque reference format.',
+            ? "The value matches the manufacturer's reference format."
+            : "The value does not match the manufacturer's reference format.",
     },
     {
       key: 'crossfoot_ok',
-      label: 'Crossfoot',
+      label: 'Column adds to the printed total',
+      code: 'crossfoot_ok',
       display: display(signals.crossfoot_ok),
       verdict: scoreVerdict(signals.crossfoot_ok),
       note:
@@ -116,16 +129,18 @@ export function signalRows(
     },
     {
       key: 'crossfoot_residual_suspect',
-      label: 'Crossfoot residual',
+      label: 'Blamed for the column not adding up',
+      code: 'crossfoot_residual_suspect',
       display: signals.crossfoot_residual_suspect ? 'suspect' : 'clear',
       verdict: signals.crossfoot_residual_suspect ? 'fail' : 'pass',
       note: signals.crossfoot_residual_suspect
         ? 'The amount the column is out by points at this line.'
-        : 'The residual does not point at this line.',
+        : 'The amount the column is out by does not point at this line.',
     },
     {
       key: 'char_ambiguity',
-      label: 'Character ambiguity',
+      label: 'Easily confused characters',
+      code: 'char_ambiguity',
       display: signals.char_ambiguity.toFixed(2),
       verdict: signals.char_ambiguity > 0 ? 'fail' : 'pass',
       note:
@@ -135,7 +150,8 @@ export function signalRows(
     },
     {
       key: 'route',
-      label: 'Read by',
+      label: 'How this file was read',
+      code: 'route',
       display: signals.route === null ? 'not available' : humanize(signals.route),
       verdict: 'info',
       note: 'The extractor this document was routed to, decided from its own bytes.',

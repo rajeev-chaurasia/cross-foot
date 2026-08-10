@@ -14,6 +14,10 @@ from crossfoot.db import exceptions
 
 router = APIRouter(tags=["exceptions"])
 
+# The same page geometry the review queue uses, so the two dashboards page alike.
+DEFAULT_EXCEPTION_LIMIT = 50
+MAX_EXCEPTION_LIMIT = 500
+
 UNKNOWN_EXCEPTION_DETAIL = "no exception {exception_id}"
 
 ExceptionId = Annotated[str, Path(description="Exception being worked.")]
@@ -35,14 +39,18 @@ def list_exceptions(
     status_filter: StatusFilter = None,
     min_impact_cents: MinImpact = None,
     sort: Sort = exceptions.ExceptionSort.IMPACT,
+    limit: Annotated[int, Query(ge=1, le=MAX_EXCEPTION_LIMIT)] = DEFAULT_EXCEPTION_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Page[ExceptionItem]:
-    """Exceptions ranked by absolute dollar impact, largest first."""
+    """One page of exceptions ranked by absolute dollar impact, largest first."""
     rows, total = exceptions.listing(
         connection,
         exception_type=exception_type,
         status=status_filter,
         min_impact_cents=min_impact_cents,
         sort=sort,
+        limit=limit,
+        offset=offset,
     )
     return Page(items=tuple(ExceptionItem.from_row(row) for row in rows), total=total)
 

@@ -16,7 +16,7 @@
 
 import type { FieldFamily, SplitName, ThresholdPoint } from '../../api/types'
 import { FAMILY_COLOR, readSweep, THRESHOLD_SPLIT } from '../../lib/metrics'
-import { formatRate, humanize } from '../../lib/format'
+import { formatRate, formatThreshold, humanize } from '../../lib/format'
 
 const WIDTH = 380
 const HEIGHT = 280
@@ -197,7 +197,7 @@ export function ThresholdSweep({ family, points, reportedSplit }: Props) {
 
       <figcaption className="mt-2 text-sm text-slate-600">
         {humanize(family)} fields, threshold{' '}
-        <span className="font-mono">{applied.threshold.toFixed(4)}</span>. Chosen on the{' '}
+        <span className="font-mono">{formatThreshold(applied.threshold)}</span>. Chosen on the{' '}
         {THRESHOLD_SPLIT} split, where it read{' '}
         <span className="font-mono">{formatRate(applied.auto_accept_precision, REPORTED_DIGITS)}</span> auto accept
         precision at <span className="font-mono">{formatRate(applied.review_rate, REPORTED_DIGITS)}</span> review. On
@@ -239,14 +239,14 @@ export function ThresholdSweep({ family, points, reportedSplit }: Props) {
           {drawn.map((point) => (
             <tr key={`${THRESHOLD_SPLIT}-${point.threshold}`}>
               <td>{humanize(THRESHOLD_SPLIT)}</td>
-              <td>{point.threshold}</td>
+              <td>{formatThreshold(point.threshold)}</td>
               <td>{formatRate(point.auto_accept_precision, REPORTED_DIGITS)}</td>
               <td>{formatRate(point.review_rate, REPORTED_DIGITS)}</td>
             </tr>
           ))}
           <tr>
             <td>{reported}</td>
-            <td>{achieved.threshold}</td>
+            <td>{formatThreshold(achieved.threshold)}</td>
             <td>{formatRate(achieved.auto_accept_precision, REPORTED_DIGITS)}</td>
             <td>{formatRate(achieved.review_rate, REPORTED_DIGITS)}</td>
           </tr>

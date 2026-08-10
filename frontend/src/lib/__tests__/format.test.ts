@@ -7,7 +7,9 @@ import {
   formatMicroUsd,
   formatRate,
   formatShare,
+  formatThreshold,
   humanize,
+  pageRangeLabel,
 } from '../format'
 
 describe('formatCents', () => {
@@ -57,8 +59,40 @@ describe('rates and shares', () => {
     expect(formatShare(0, 0)).toBe('-')
   })
 
-  it('keeps the confidence the API sent', () => {
-    expect(formatConfidence(0.2)).toBe('0.20')
+  // A confidence used to print as `0.25` beside three panels of percentages.
+  // Same units everywhere is the point, not the extra digit.
+  it('reads a confidence in the same units as every other rate on screen', () => {
+    expect(formatConfidence(0.2)).toBe('20.0%')
+    expect(formatConfidence(1)).toBe('100.0%')
+  })
+
+  it('rounds the float the API really sends rather than printing all of it', () => {
+    expect(formatConfidence(0.24989915380614763)).toBe('25.0%')
+  })
+})
+
+describe('formatThreshold', () => {
+  it('cuts a searched threshold to four places', () => {
+    expect(formatThreshold(0.9299335323598775)).toBe('0.9299')
+    expect(formatThreshold(0.6864508663860327)).toBe('0.6865')
+  })
+
+  it('pads a round threshold out to the same width', () => {
+    expect(formatThreshold(0.7)).toBe('0.7000')
+    expect(formatThreshold(0)).toBe('0.0000')
+  })
+})
+
+describe('pageRangeLabel', () => {
+  it('says which slice of the whole listing is on screen', () => {
+    expect(pageRangeLabel(0, 50, 1901, 'fields')).toBe('Showing 1 to 50 of 1,901 fields')
+    expect(pageRangeLabel(700, 51, 751, 'exceptions')).toBe(
+      'Showing 701 to 751 of 751 exceptions',
+    )
+  })
+
+  it('refuses to read 1 to 0 on an empty page', () => {
+    expect(pageRangeLabel(0, 0, 0, 'fields')).toBe('No fields to show')
   })
 })
 

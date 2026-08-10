@@ -65,6 +65,9 @@ export function SignalBreakdown({ signals, family, name }: Props) {
             <tr key={row.key} className="border-t border-slate-100 align-top">
               <th scope="row" className="py-1.5 pr-3 font-normal text-slate-700">
                 {row.label}
+                {/* The wire name, so an engineer reading over the reviewer's
+                    shoulder can still map the row back to FieldSignals. */}
+                <span className="block font-mono text-xs text-slate-400">{row.code}</span>
               </th>
               <td className="py-1.5 pr-3 font-mono text-slate-900">{row.display}</td>
               <td className="py-1.5">

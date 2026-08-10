@@ -32,7 +32,7 @@ _FILTERS = """
       AND (:min_impact_cents IS NULL OR ABS(dollar_impact_cents) >= :min_impact_cents)
 """
 
-_LISTING = f"SELECT * FROM exceptions {_FILTERS} ORDER BY {{order_by}}"
+_LISTING = f"SELECT * FROM exceptions {_FILTERS} ORDER BY {{order_by}} LIMIT :limit OFFSET :offset"
 
 _TOTAL = f"SELECT COUNT(*) AS total FROM exceptions {_FILTERS}"
 
@@ -52,14 +52,23 @@ def listing(
     status: ExceptionStatus | None,
     min_impact_cents: int | None,
     sort: ExceptionSort,
+    limit: int,
+    offset: int,
 ) -> tuple[list[sqlite3.Row], int]:
-    """Every exception matching the filter, ranked, and the count it matched."""
+    """One page of the ranked listing, and the count the filter matched.
+
+    The count is the whole filter, never the page, so a dashboard can say what it
+    is a page of. The ranking is total, so walking the offsets visits every row
+    exactly once.
+    """
     filters = {
         "exception_type": None if exception_type is None else exception_type.value,
         "status": None if status is None else status.value,
         "min_impact_cents": min_impact_cents,
     }
-    rows = connection.execute(_LISTING.format(order_by=_ORDER_BY[sort]), filters).fetchall()
+    rows = connection.execute(
+        _LISTING.format(order_by=_ORDER_BY[sort]), filters | {"limit": limit, "offset": offset}
+    ).fetchall()
     (total,) = connection.execute(_TOTAL, filters).fetchone()
     return list(rows), int(total)
 

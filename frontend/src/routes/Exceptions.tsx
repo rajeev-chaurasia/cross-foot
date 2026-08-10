@@ -4,6 +4,11 @@
  * The API ranks by absolute dollar impact and this table renders that order as
  * it arrives. Amounts are integer cents on the wire and become dollars only in
  * the cell that prints them.
+ *
+ * The listing is paged. A run over the real dataset opens 751 exceptions, and a
+ * table that renders all of them at once is thirty thousand pixels of scroll
+ * with no way to tell how far down it goes, so the page asks the API for fifty
+ * at a time and says which fifty it is showing.
  */
 
 import { Fragment, useState } from 'react'
@@ -16,8 +21,12 @@ import type {
   ExceptionType,
 } from '../api/types'
 import { EXCEPTION_STATUSES, EXCEPTION_TYPES } from '../api/types'
+import { Pager } from '../components/Pager'
 import { BUTTON, CARD, FOCUS_RING, SELECT } from '../components/ui'
+import { describeDocument } from '../lib/documents'
 import { formatCents, formatTimestamp, humanize } from '../lib/format'
+
+const PAGE_SIZE = 50
 
 // Whole dollar floors, kept in cents so nothing here parses a decimal.
 const IMPACT_FLOORS: readonly { label: string; cents: number | undefined }[] = [
@@ -49,7 +58,12 @@ function ExceptionDetail({ record }: DetailProps) {
           <h4 className="text-sm font-semibold text-slate-900">Statement line</h4>
           <dl className="mt-2 grid grid-cols-2 gap-y-1 text-sm">
             <dt className="text-slate-500">Document</dt>
-            <dd className="font-mono text-slate-900">{record.doc_id ?? 'none'}</dd>
+            <dd className="text-slate-900">
+              {record.doc_id === null ? 'none' : describeDocument(record.doc_id).label}
+              {record.doc_id !== null && (
+                <span className="block font-mono text-xs text-slate-400">{record.doc_id}</span>
+              )}
+            </dd>
             <dt className="text-slate-500">Line</dt>
             <dd className="font-mono text-slate-900">
               {record.statement_line_no === null ? 'none' : record.statement_line_no}
@@ -126,17 +140,29 @@ export function Exceptions() {
   const [type, setType] = useState<ExceptionType | ''>('')
   const [status, setStatus] = useState<ExceptionStatus | ''>('')
   const [floor, setFloor] = useState<number | undefined>(undefined)
+  const [offset, setOffset] = useState(0)
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const params: ExceptionListParams = {
     ...(type === '' ? {} : { type }),
     ...(status === '' ? {} : { status }),
     ...(floor === undefined ? {} : { min_impact_cents: floor }),
+    limit: PAGE_SIZE,
+    offset,
   }
 
   const summary = useSummary()
   const exceptions = useExceptions(params)
   const items = exceptions.data?.items ?? []
+  const total = exceptions.data?.total ?? 0
+
+  // A narrower filter can leave the current page past the end of the listing, so
+  // every filter change goes back to the largest impact.
+  const refilter = (change: () => void): void => {
+    change()
+    setOffset(0)
+    setExpanded(null)
+  }
 
   return (
     <div className="space-y-4">
@@ -164,7 +190,9 @@ export function Exceptions() {
           <select
             className={SELECT}
             value={type}
-            onChange={(event) => setType(event.target.value as ExceptionType | '')}
+            onChange={(event) => {
+              refilter(() => setType(event.target.value as ExceptionType | ''))
+            }}
           >
             <option value="">Every type</option>
             {EXCEPTION_TYPES.map((value) => (
@@ -179,7 +207,9 @@ export function Exceptions() {
           <select
             className={SELECT}
             value={status}
-            onChange={(event) => setStatus(event.target.value as ExceptionStatus | '')}
+            onChange={(event) => {
+              refilter(() => setStatus(event.target.value as ExceptionStatus | ''))
+            }}
           >
             <option value="">Every status</option>
             {EXCEPTION_STATUSES.map((value) => (
@@ -194,9 +224,11 @@ export function Exceptions() {
           <select
             className={SELECT}
             value={floor === undefined ? '' : String(floor)}
-            onChange={(event) =>
-              setFloor(event.target.value === '' ? undefined : Number(event.target.value))
-            }
+            onChange={(event) => {
+              refilter(() => {
+                setFloor(event.target.value === '' ? undefined : Number(event.target.value))
+              })
+            }}
           >
             {IMPACT_FLOORS.map((option) => (
               <option key={option.label} value={option.cents === undefined ? '' : option.cents}>
@@ -215,9 +247,10 @@ export function Exceptions() {
 
       <section className={`${CARD} overflow-hidden`} aria-label="Ranked exceptions">
         <table className="w-full text-left text-sm">
+          {/* The page range lives on the pager below and only there, so a reader
+              is never left comparing two statements of the same count. */}
           <caption className="p-3 text-left text-sm text-slate-600">
-            Ranked by absolute dollar impact, largest first.{' '}
-            {exceptions.data === undefined ? '' : `${exceptions.data.total} matching.`}
+            Ranked by absolute dollar impact, largest first.
           </caption>
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
@@ -253,11 +286,20 @@ export function Exceptions() {
               return (
                 <Fragment key={record.exception_id}>
                 <tr className="border-t border-slate-100 align-top">
-                  <td className="px-3 py-2 font-mono text-slate-500">{rank + 1}</td>
+                  <td className="px-3 py-2 font-mono text-slate-500">{offset + rank + 1}</td>
                   <td className="px-3 py-2 text-slate-900">{humanize(record.exception_type)}</td>
-                  <td className="px-3 py-2 font-mono text-slate-700">
-                    {record.doc_id ?? 'none'}
-                    {record.statement_line_no === null ? '' : ` line ${record.statement_line_no}`}
+                  <td className="px-3 py-2 text-slate-700">
+                    <span className="block">
+                      {record.doc_id === null ? 'none' : describeDocument(record.doc_id).label}
+                      {record.statement_line_no === null
+                        ? ''
+                        : `, line ${String(record.statement_line_no)}`}
+                    </span>
+                    {record.doc_id !== null && (
+                      <span className="block font-mono text-xs text-slate-400">
+                        {record.doc_id}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right font-mono text-slate-900">
                     {record.statement_amount_cents === null
@@ -311,6 +353,19 @@ export function Exceptions() {
             )}
           </tbody>
         </table>
+        <div className="border-t border-slate-100 p-3">
+          <Pager
+            offset={offset}
+            count={items.length}
+            total={total}
+            pageSize={PAGE_SIZE}
+            noun="exceptions"
+            onOffset={(next) => {
+              setOffset(next)
+              setExpanded(null)
+            }}
+          />
+        </div>
       </section>
     </div>
   )

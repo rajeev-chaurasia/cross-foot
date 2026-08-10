@@ -31,6 +31,41 @@ describe('signalRows', () => {
     expect(route?.verdict).toBe('info')
     expect(route?.display).toBe('Scanned pdf')
   })
+
+  // A4. The table under the plain sentence has to read in the same register.
+  it('labels every signal in words, not in the name the code uses', () => {
+    const rows = signalRows(VIN_DETAIL.signals, 'reference', 'vin')
+    const labels = rows.map((row) => row.label)
+    expect(labels).toEqual([
+      'Read twice, same answer',
+      'The two readings agree',
+      'Passes the format check',
+      "Matches the manufacturer's number format",
+      'Column adds to the printed total',
+      'Blamed for the column not adding up',
+      'Easily confused characters',
+      'How this file was read',
+    ])
+    for (const label of labels) {
+      expect(label).not.toContain('_')
+    }
+  })
+
+  it('keeps the wire name on every row so an engineer can map it back', () => {
+    const rows = signalRows(VIN_DETAIL.signals, 'reference', 'vin')
+    expect(rows.map((row) => row.code)).toEqual([
+      'self_consistency',
+      'det_llm_agreement',
+      'validator_pass',
+      'grammar_match',
+      'crossfoot_ok',
+      'crossfoot_residual_suspect',
+      'char_ambiguity',
+      'route',
+    ])
+    // The wire name is the key, so nothing can drift between the two.
+    expect(rows.every((row) => row.code === row.key)).toBe(true)
+  })
 })
 
 describe('flagReasons', () => {

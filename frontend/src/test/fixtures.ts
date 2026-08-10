@@ -26,9 +26,15 @@ export const SUMMARY: StatsSummary = {
   cost_per_document_microusd: 45_000,
 }
 
+// The ids ingest actually writes, rather than short stand ins: the review
+// surface has to turn `doc-floorplan_statement-dlr-meridian-202606-02` into
+// something a clerk reads, and a fixture keyed `doc-a` could never catch it.
+export const DOC_A = 'doc-floorplan_statement-dlr-meridian-202606-02'
+export const DOC_B = 'doc-warranty_credit_memo-dlr-northstar-202604-01'
+
 export const VIN_ITEM: ReviewItem = {
-  field_id: 'fld-a-0001',
-  doc_id: 'doc-a',
+  field_id: `fld-${DOC_A}-0001-vin`,
+  doc_id: DOC_A,
   line_no: 1,
   name: 'vin',
   family: 'reference',
@@ -36,25 +42,27 @@ export const VIN_ITEM: ReviewItem = {
   value: '1G1ZT53826F1O9149',
   confidence: 0.2,
   status: 'needs_review',
-  crop_url: '/api/crops/doc-a/fld-a-0001.png',
+  crop_url: `/api/crops/${DOC_A}/fld-${DOC_A}-0001-vin.png`,
 }
 
 export const AMOUNT_ITEM: ReviewItem = {
-  field_id: 'fld-a-0002',
-  doc_id: 'doc-a',
+  field_id: `fld-${DOC_A}-0002-line_amount`,
+  doc_id: DOC_A,
   line_no: 1,
   name: 'line_amount',
   family: 'amount',
   raw_text: '$1,234.56',
   value: '1234.56',
-  confidence: 0.2,
+  // The unrounded float the API really sends, so anything that prints it raw
+  // shows up in a test rather than on a screenshot.
+  confidence: 0.24989915380614763,
   status: 'needs_review',
-  crop_url: '/api/crops/doc-a/fld-a-0002.png',
+  crop_url: `/api/crops/${DOC_A}/fld-${DOC_A}-0002-line_amount.png`,
 }
 
 export const CLAIM_ITEM: ReviewItem = {
-  field_id: 'fld-b-0001',
-  doc_id: 'doc-b',
+  field_id: `fld-${DOC_B}-0001-claim_number`,
+  doc_id: DOC_B,
   line_no: 1,
   name: 'claim_number',
   family: 'reference',
@@ -62,7 +70,7 @@ export const CLAIM_ITEM: ReviewItem = {
   value: 'NS12345678',
   confidence: 0.31,
   status: 'needs_review',
-  crop_url: '/api/crops/doc-b/fld-b-0001.png',
+  crop_url: `/api/crops/${DOC_B}/fld-${DOC_B}-0001-claim_number.png`,
 }
 
 export const QUEUE: ReviewQueueResponse = {
@@ -70,8 +78,29 @@ export const QUEUE: ReviewQueueResponse = {
   total: 3,
 }
 
+/** A queue long enough to page: 120 fields over three pages of fifty. */
+export const LONG_QUEUE_TOTAL = 120
+
+export function longQueuePage(offset: number, limit: number): ReviewQueueResponse {
+  const items: ReviewItem[] = []
+  for (let rank = offset; rank < Math.min(offset + limit, LONG_QUEUE_TOTAL); rank += 1) {
+    items.push({
+      ...VIN_ITEM,
+      field_id: `fld-${DOC_A}-${String(rank).padStart(4, '0')}-vin`,
+      line_no: rank + 1,
+      confidence: 0.2 + rank / 1000,
+      crop_url: `/api/crops/${DOC_A}/fld-${DOC_A}-${String(rank).padStart(4, '0')}-vin.png`,
+    })
+  }
+  return { items, total: LONG_QUEUE_TOTAL }
+}
+
 export const VIN_DETAIL: ReviewItemDetail = {
   ...VIN_ITEM,
+  // No coordinates were recorded for this field, so the served image is the
+  // whole statement. The crop panel has to say so rather than leave a reader
+  // staring at a page wondering which number is the one under review.
+  crop_kind: 'full_page',
   signals: {
     self_consistency: 0.5,
     det_llm_agreement: null,
@@ -83,8 +112,8 @@ export const VIN_DETAIL: ReviewItemDetail = {
     route: 'scanned_pdf',
   },
   document: {
-    doc_id: 'doc-a',
-    doc_type: 'parts_statement',
+    doc_id: DOC_A,
+    doc_type: 'floorplan_statement',
     quality_tier: 'scan_heavy',
     route: 'scanned_pdf',
     split: 'test',
@@ -94,6 +123,7 @@ export const VIN_DETAIL: ReviewItemDetail = {
 
 export const AMOUNT_DETAIL: ReviewItemDetail = {
   ...AMOUNT_ITEM,
+  crop_kind: 'exact_bbox',
   signals: {
     self_consistency: 0.5,
     det_llm_agreement: null,
@@ -105,8 +135,8 @@ export const AMOUNT_DETAIL: ReviewItemDetail = {
     route: 'digital_pdf',
   },
   document: {
-    doc_id: 'doc-a',
-    doc_type: 'parts_statement',
+    doc_id: DOC_A,
+    doc_type: 'floorplan_statement',
     quality_tier: 'clean_digital',
     route: 'digital_pdf',
     split: 'test',
@@ -116,6 +146,7 @@ export const AMOUNT_DETAIL: ReviewItemDetail = {
 
 export const CLAIM_DETAIL: ReviewItemDetail = {
   ...CLAIM_ITEM,
+  crop_kind: 'row_band',
   signals: {
     self_consistency: 0,
     det_llm_agreement: null,
@@ -127,7 +158,7 @@ export const CLAIM_DETAIL: ReviewItemDetail = {
     route: 'scanned_pdf',
   },
   document: {
-    doc_id: 'doc-b',
+    doc_id: DOC_B,
     doc_type: 'warranty_credit_memo',
     quality_tier: 'scan_heavy',
     route: 'scanned_pdf',
@@ -137,9 +168,9 @@ export const CLAIM_DETAIL: ReviewItemDetail = {
 }
 
 export const DETAILS: Record<string, ReviewItemDetail> = {
-  'fld-a-0001': VIN_DETAIL,
-  'fld-a-0002': AMOUNT_DETAIL,
-  'fld-b-0001': CLAIM_DETAIL,
+  [VIN_ITEM.field_id]: VIN_DETAIL,
+  [AMOUNT_ITEM.field_id]: AMOUNT_DETAIL,
+  [CLAIM_ITEM.field_id]: CLAIM_DETAIL,
 }
 
 // The exceptions contract test's seeded rows, already in the API's ranking:
@@ -150,7 +181,7 @@ export const EXCEPTIONS: ExceptionListResponse = {
       exception_id: 'exc-3',
       run_id: 'run-contract-0001',
       exception_type: 'short_pay',
-      doc_id: 'doc-a',
+      doc_id: DOC_A,
       statement_line_no: 3,
       ledger_entry_id: null,
       match_key: 'ro:RO123456',
@@ -166,7 +197,7 @@ export const EXCEPTIONS: ExceptionListResponse = {
       exception_id: 'exc-5',
       run_id: 'run-contract-0001',
       exception_type: 'duplicate',
-      doc_id: 'doc-a',
+      doc_id: DOC_A,
       statement_line_no: 5,
       ledger_entry_id: null,
       match_key: null,
@@ -182,7 +213,7 @@ export const EXCEPTIONS: ExceptionListResponse = {
       exception_id: 'exc-1',
       run_id: 'run-contract-0001',
       exception_type: 'amount_mismatch',
-      doc_id: 'doc-a',
+      doc_id: DOC_A,
       statement_line_no: 1,
       ledger_entry_id: 'led-parts_payable-00007',
       match_key: 'invoice:M1234567',
@@ -198,7 +229,7 @@ export const EXCEPTIONS: ExceptionListResponse = {
       exception_id: 'exc-2',
       run_id: 'run-contract-0001',
       exception_type: 'missing_from_ledger',
-      doc_id: 'doc-a',
+      doc_id: DOC_A,
       statement_line_no: 2,
       ledger_entry_id: null,
       match_key: null,
@@ -214,7 +245,7 @@ export const EXCEPTIONS: ExceptionListResponse = {
       exception_id: 'exc-4',
       run_id: 'run-contract-0001',
       exception_type: 'timing_difference',
-      doc_id: 'doc-a',
+      doc_id: DOC_A,
       statement_line_no: 4,
       ledger_entry_id: 'led-parts_payable-00011',
       match_key: null,
@@ -228,6 +259,24 @@ export const EXCEPTIONS: ExceptionListResponse = {
     },
   ],
   total: 5,
+}
+
+/** The count a real run opens, which is what the dashboard has to page through. */
+export const LONG_EXCEPTIONS_TOTAL = 751
+
+export function longExceptionPage(offset: number, limit: number): ExceptionListResponse {
+  const template = EXCEPTIONS.items[0]
+  const items = []
+  for (let rank = offset; rank < Math.min(offset + limit, LONG_EXCEPTIONS_TOTAL); rank += 1) {
+    items.push({
+      ...template,
+      exception_id: `exc-${String(rank).padStart(4, '0')}`,
+      statement_line_no: rank + 1,
+      // Descending absolute impact, the order the API ranks in.
+      dollar_impact_cents: (LONG_EXCEPTIONS_TOTAL - rank) * 100,
+    })
+  }
+  return { items, total: LONG_EXCEPTIONS_TOTAL }
 }
 
 /**
@@ -323,4 +372,35 @@ export const METRICS: MetricsResponse = {
 export const METRICS_WITHOUT_MODELS: MetricsResponse = {
   ...METRICS,
   scorecard: { ...METRICS.scorecard, models_used: [] },
+}
+
+/**
+ * The thresholds a real sweep lands on.
+ *
+ * A threshold is chosen by searching a grid, so it arrives as a float with every
+ * digit a double can hold. These are the two the running system published, kept
+ * verbatim, so anything that prints one straight fails here rather than on a
+ * screenshot.
+ */
+const SEARCHED = 0.9299335323598775
+const SEARCHED_SWEEP: ThresholdPoint[] = [
+  {
+    field_family: 'reference',
+    threshold: 0.6864508663860327,
+    auto_accept_precision: 0.9643,
+    review_rate: 0.3,
+  },
+  { field_family: 'reference', threshold: SEARCHED, auto_accept_precision: 1, review_rate: 0.7757 },
+  {
+    field_family: 'reference',
+    threshold: SEARCHED,
+    auto_accept_precision: 0.9505,
+    review_rate: 0.8196,
+  },
+]
+
+export const METRICS_WITH_SEARCHED_THRESHOLD: MetricsResponse = {
+  ...METRICS,
+  scorecard: { ...METRICS.scorecard, threshold_sweep: SEARCHED_SWEEP },
+  threshold_sweep: SEARCHED_SWEEP,
 }

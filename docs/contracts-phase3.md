@@ -57,8 +57,9 @@ SQLite prefers that), pydantic DTOs in `api/dto.py`, no auth (single operator to
   `data/crops/`. Path segments are validated the same way manifest paths are; anything
   that escapes the crop root is a 400, never a file read.
 - `GET /api/documents?route=&split=` and `GET /api/documents/{doc_id}`
-- `GET /api/exceptions?type=&status=&min_impact_cents=&sort=impact` -> ranked by
-  absolute dollar impact descending by default
+- `GET /api/exceptions?type=&status=&min_impact_cents=&sort=impact&limit=&offset=` ->
+  paged, ranked by absolute dollar impact descending by default. Returns the count the
+  filter matched, which is the whole listing rather than the page.
 - `POST /api/exceptions/{exception_id}/resolve` body `{"resolution": str}`
 - `GET /api/metrics` -> the latest committed scorecard as JSON, plus the calibration
   points and threshold sweep

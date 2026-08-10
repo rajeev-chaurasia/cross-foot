@@ -20,6 +20,7 @@
  */
 
 import type { CalibrationBin, FieldFamily, SplitName, ThresholdPoint } from '../api/types'
+import { formatThreshold } from './format'
 
 export const FAMILY_COLOR: Record<FieldFamily, string> = {
   amount: '#0284c7',
@@ -100,7 +101,7 @@ export function readSweep(points: readonly ThresholdPoint[]): SweepReading {
   if (applied === undefined) {
     return {
       kind: 'malformed',
-      reason: `this family reports a result at threshold ${achieved.threshold}, which is not a point on its published curve`,
+      reason: `this family reports a result at threshold ${formatThreshold(achieved.threshold)}, which is not a point on its published curve`,
     }
   }
   return {

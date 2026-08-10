@@ -64,6 +64,17 @@ export type DocType =
   | 'floorplan_statement'
   | 'incentive_statement'
 
+/**
+ * How the pixels beside a value were actually found, decided by the renderer.
+ *
+ * `full_page` is the floor rather than a failure: a field whose coordinates were
+ * never recorded still has to be reviewable, so the whole statement is served.
+ * The crop panel captions which of the three it is looking at, because a page
+ * shown without that caption reads as "we could not find it" to some readers and
+ * as "here it is" to others.
+ */
+export type CropKind = 'exact_bbox' | 'row_band' | 'full_page'
+
 export type SplitName = 'train' | 'calibration' | 'test'
 
 export type ExceptionType =
@@ -164,6 +175,8 @@ export interface DocumentContext {
 }
 
 export interface ReviewItemDetail extends ReviewItem {
+  /** Which of the three ways the served crop was cut. */
+  crop_kind: CropKind
   signals: FieldSignals
   document: DocumentContext
   neighbors: ReviewItem[]
@@ -215,6 +228,8 @@ export interface ExceptionListParams {
   type?: ExceptionType
   status?: ExceptionStatus
   min_impact_cents?: number
+  limit?: number
+  offset?: number
 }
 
 export interface ResolutionRequest {

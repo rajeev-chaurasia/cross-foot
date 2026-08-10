@@ -121,11 +121,20 @@ export function Metrics() {
 
       <section className={`${CARD} overflow-x-auto p-4`} aria-labelledby="accuracy-heading">
         <h2 id="accuracy-heading" className="text-base font-semibold text-slate-900">
-          Per field accuracy by tier
+          Per field accuracy by quality tier
         </h2>
         <p className="mt-1 text-sm text-slate-600">
           Canonical matches over expected fields, as the scorecard published them. This screen
           computes no rate the scorecard did not publish.
+        </p>
+        {/* The tier is the only figure on this project that the dataset knows and
+            a deployment never would, so it is named as an evaluation axis here
+            and appears nowhere in the review surface. */}
+        <p className="mt-1 text-sm text-slate-500">
+          Quality tier is an evaluation axis, not a product signal. The generator recorded how each
+          file was degraded, so accuracy can be read per condition. A statement arriving from a
+          manufacturer carries no such label, the confidence model is not given one, and the review
+          queue never shows one.
         </p>
         <table className="mt-3 w-full text-left text-sm">
           <caption className="sr-only">
@@ -172,7 +181,10 @@ export function Metrics() {
         </table>
       </section>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      {/* Stacked rather than side by side. The sweep grows a figure per family
+          and the reliability diagram never grows at all, so a two column row
+          leaves one column ending a thousand pixels above the other. */}
+      <div className="space-y-4">
         <section className={`${CARD} p-4`} aria-labelledby="reliability-heading">
           <h2 id="reliability-heading" className="text-base font-semibold text-slate-900">
             Reliability diagram
@@ -204,7 +216,7 @@ export function Metrics() {
                 delivered at that same threshold is the second marker, and it is the number the
                 product claim rests on.
               </p>
-              <div className="mt-3 space-y-6">
+              <div className="mt-3 grid grid-cols-1 gap-6 lg:grid-cols-2">
                 {sweepFamilies.map((family) => (
                   <ThresholdSweep
                     key={family}

@@ -2,25 +2,31 @@
  * The review queue: the uncertain fields, next to the pixels they came from.
  *
  * Everything on this screen is a number the API published. The queue order is
- * the API's total order (ascending confidence, then field id), the confidence
- * is the API's, and the share of fields under review is the queue depth over
- * the extracted field count, both of which come from GET /api/stats/summary.
+ * the API's total order (ascending confidence, then field id), the confidence is
+ * the API's, the queue depth and the extracted field count come from
+ * GET /api/stats/summary, and the page counts come from the `total` the queue
+ * route returns. Nothing here computes an accuracy.
+ *
+ * Two things the API knows are deliberately kept off this screen. The document's
+ * quality tier is dataset generator metadata: no statement a dealership receives
+ * carries one, the confidence model was stripped of it for exactly that reason,
+ * and printing it here would imply knowledge the system does not have. `Route`
+ * says the honest, artifact-derived version of the same thing, because the
+ * router decides it from the file's own bytes. The tier survives only on the
+ * metrics page, as an evaluation axis, labelled as one.
  */
 
 import { useEffect, useRef, useState } from 'react'
 
 import { useReviewItem, useReviewQueue, useReviewWrite, useSummary } from '../api/queries'
-import type {
-  FieldFamily,
-  QualityTier,
-  ReviewItem,
-  ReviewStatus,
-  ReviewQueueParams,
-} from '../api/types'
-import { FIELD_FAMILIES, QUALITY_TIERS, REVIEW_STATUSES } from '../api/types'
+import type { FieldFamily, ReviewItem, ReviewStatus, ReviewQueueParams } from '../api/types'
+import { FIELD_FAMILIES, REVIEW_STATUSES } from '../api/types'
+import { Pager } from '../components/Pager'
 import { SignalBreakdown } from '../components/SignalBreakdown'
 import { ShortcutsBar, ShortcutsOverlay } from '../components/Shortcuts'
 import { BUTTON, CARD, FOCUS_RING, KBD, PRIMARY_BUTTON, SELECT } from '../components/ui'
+import { cropCaption } from '../lib/crops'
+import { describeDocument, describeField, lineLabel } from '../lib/documents'
 import { formatConfidence, formatRate, formatShare, humanize } from '../lib/format'
 
 const PAGE_SIZE = 50
@@ -32,38 +38,39 @@ const STATUS_CLASS: Record<ReviewStatus, string> = {
   human_corrected: 'bg-violet-100 text-violet-900',
 }
 
-function lineLabel(item: ReviewItem): string {
-  return item.line_no === null ? 'header' : `line ${item.line_no}`
-}
+/** Which end of a freshly loaded page the reviewer should land on. */
+type QueueEdge = 'first' | 'last'
 
 export function ReviewQueue() {
   const [status, setStatus] = useState<ReviewStatus | ''>('needs_review')
   const [family, setFamily] = useState<FieldFamily | ''>('')
-  const [tier, setTier] = useState<QualityTier | ''>('')
   const [offset, setOffset] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
-  const [reviewer, setReviewer] = useState('reviewer')
+  const [reviewer, setReviewer] = useState('')
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [cropBroken, setCropBroken] = useState(false)
+  const [cropZoomed, setCropZoomed] = useState(false)
 
   const params: ReviewQueueParams = {
     limit: PAGE_SIZE,
     offset,
     ...(status === '' ? {} : { status }),
     ...(family === '' ? {} : { family }),
-    ...(tier === '' ? {} : { tier }),
   }
 
   const summary = useSummary()
   const queue = useReviewQueue(params)
   const { accept, correct } = useReviewWrite()
 
-  const items = queue.data?.items ?? []
+  const pageItems = queue.data?.items
+  const items = pageItems ?? []
   const total = queue.data?.total ?? 0
 
   const fallbackIndex = useRef(0)
+  const pendingEdge = useRef<QueueEdge | null>(null)
   const correctionRef = useRef<HTMLInputElement>(null)
+  const reviewerRef = useRef<HTMLInputElement>(null)
   const selectedRef = useRef<HTMLLIElement>(null)
 
   let index = items.findIndex((item) => item.field_id === selectedId)
@@ -72,15 +79,33 @@ export function ReviewQueue() {
   }
   const current: ReviewItem | undefined = index >= 0 ? items[index] : undefined
 
+  // Only a page that actually has rows can say where the reviewer is in it. A
+  // page still loading must not overwrite the landing the page turn asked for.
   useEffect(() => {
-    fallbackIndex.current = Math.max(index, 0)
+    if (index >= 0) {
+      fallbackIndex.current = index
+    }
   }, [index])
 
-  // A filter or a page change starts the queue over at its least trusted field.
+  // A filter change starts the queue over at its least trusted field.
   useEffect(() => {
     setSelectedId(null)
     fallbackIndex.current = 0
-  }, [status, family, tier, offset])
+    pendingEdge.current = null
+  }, [status, family])
+
+  // A page turn lands on the end the reviewer arrived from, so j and k retrace
+  // the same path across a boundary instead of both landing at the top.
+  useEffect(() => {
+    const edge = pendingEdge.current
+    if (edge === null || pageItems === undefined || pageItems.length === 0) {
+      return
+    }
+    pendingEdge.current = null
+    const landing = edge === 'last' ? pageItems.length - 1 : 0
+    fallbackIndex.current = landing
+    setSelectedId(pageItems[landing].field_id)
+  }, [pageItems])
 
   const detail = useReviewItem(current?.field_id ?? null)
 
@@ -89,11 +114,19 @@ export function ReviewQueue() {
   useEffect(() => {
     setDraft(currentValue)
     setCropBroken(false)
+    setCropZoomed(false)
   }, [currentId, currentValue])
 
   useEffect(() => {
     selectedRef.current?.scrollIntoView?.({ block: 'nearest' })
   }, [currentId])
+
+  const turnPage = (nextOffset: number, edge: QueueEdge): void => {
+    pendingEdge.current = edge
+    setSelectedId(null)
+    fallbackIndex.current = edge === 'last' ? Number.MAX_SAFE_INTEGER : 0
+    setOffset(nextOffset)
+  }
 
   const move = (delta: number): void => {
     if (items.length === 0) {
@@ -102,13 +135,13 @@ export function ReviewQueue() {
     const next = index + delta
     if (next < 0) {
       if (offset > 0) {
-        setOffset(Math.max(offset - PAGE_SIZE, 0))
+        turnPage(Math.max(offset - PAGE_SIZE, 0), 'last')
       }
       return
     }
     if (next >= items.length) {
       if (offset + items.length < total) {
-        setOffset(offset + PAGE_SIZE)
+        turnPage(offset + PAGE_SIZE, 'first')
       }
       return
     }
@@ -135,11 +168,20 @@ export function ReviewQueue() {
     advance()
   }
 
+  const namedReviewer = reviewer.trim()
+  const reviewerMissing = namedReviewer === ''
+
   const saveCorrection = (): void => {
     if (current === undefined || draft === '') {
       return
     }
-    correct.mutate({ fieldId: current.field_id, value: draft, reviewer })
+    // A correction is attributed to whoever made it, so it does not get saved
+    // under a placeholder.
+    if (reviewerMissing) {
+      reviewerRef.current?.focus()
+      return
+    }
+    correct.mutate({ fieldId: current.field_id, value: draft, reviewer: namedReviewer })
     advance()
   }
 
@@ -201,12 +243,16 @@ export function ReviewQueue() {
   })
 
   const writeError = accept.error ?? correct.error
+  const place = offset + index + 1
   const position =
     current === undefined
       ? 'The queue is empty.'
-      : `Field ${offset + index + 1} of ${total}. ` +
-        `${humanize(current.name)} on ${lineLabel(current)} of document ${current.doc_id}. ` +
+      : `Field ${place} of ${total}. ` +
+        `${describeField(current.name, current.line_no, current.doc_id)}. ` +
         `Confidence ${formatConfidence(current.confidence)}. Status ${humanize(current.status)}.`
+
+  const sourceDoc = current === undefined ? undefined : describeDocument(current.doc_id)
+  const caption = detail.data === undefined ? undefined : cropCaption(detail.data.crop_kind)
 
   return (
     <div className="space-y-4">
@@ -234,8 +280,11 @@ export function ReviewQueue() {
           </div>
           <div className="text-right text-sm text-slate-600">
             <p>
-              Showing <span className="font-mono">{items.length}</span> of{' '}
-              <span className="font-mono">{total}</span> matching fields
+              Page <span className="font-mono">{Math.floor(offset / PAGE_SIZE) + 1}</span> of{' '}
+              <span className="font-mono">
+                {Math.max(1, Math.ceil(total / PAGE_SIZE)).toLocaleString('en-US')}
+              </span>
+              , <span className="font-mono">{total.toLocaleString('en-US')}</span> matching fields
             </p>
             <p className="mt-1">Least trusted field first</p>
           </div>
@@ -251,7 +300,10 @@ export function ReviewQueue() {
           <select
             className={SELECT}
             value={status}
-            onChange={(event) => setStatus(event.target.value as ReviewStatus | '')}
+            onChange={(event) => {
+              setStatus(event.target.value as ReviewStatus | '')
+              setOffset(0)
+            }}
           >
             <option value="">Every field</option>
             {REVIEW_STATUSES.map((value) => (
@@ -266,7 +318,10 @@ export function ReviewQueue() {
           <select
             className={SELECT}
             value={family}
-            onChange={(event) => setFamily(event.target.value as FieldFamily | '')}
+            onChange={(event) => {
+              setFamily(event.target.value as FieldFamily | '')
+              setOffset(0)
+            }}
           >
             <option value="">Every family</option>
             {FIELD_FAMILIES.map((value) => (
@@ -277,28 +332,19 @@ export function ReviewQueue() {
           </select>
         </label>
         <label className="text-sm text-slate-700">
-          <span className="mr-2">Quality tier</span>
-          <select
-            className={SELECT}
-            value={tier}
-            onChange={(event) => setTier(event.target.value as QualityTier | '')}
-          >
-            <option value="">Every tier</option>
-            {QUALITY_TIERS.map((value) => (
-              <option key={value} value={value}>
-                {humanize(value)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm text-slate-700">
           <span className="mr-2">Reviewer</span>
           <input
+            ref={reviewerRef}
             className={SELECT}
             value={reviewer}
+            placeholder="Your name"
+            aria-describedby="reviewer-note"
             onChange={(event) => setReviewer(event.target.value)}
           />
         </label>
+        <p id="reviewer-note" className="text-xs text-slate-500">
+          A correction is saved under this name.
+        </p>
       </section>
 
       <p aria-live="polite" className="sr-only">
@@ -317,9 +363,32 @@ export function ReviewQueue() {
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[16rem_minmax(0,1fr)_minmax(0,1fr)]">
-        <nav className={`${CARD} p-2`} aria-label="Queue">
-          <ol className="max-h-[32rem] space-y-1 overflow-y-auto">
+      <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[15rem_minmax(0,1.35fr)_minmax(0,1fr)]">
+        <nav className={`${CARD} flex flex-col p-2`} aria-label="Queue">
+          {current !== undefined && total > 0 && (
+            <div className="px-1 pb-2">
+              <p className="text-xs text-slate-600">
+                Field {place.toLocaleString('en-US')} of {total.toLocaleString('en-US')}
+              </p>
+              <div
+                role="progressbar"
+                aria-label="Position in the review queue"
+                aria-valuemin={1}
+                aria-valuemax={total}
+                aria-valuenow={place}
+                className="mt-1 h-1.5 w-full overflow-hidden rounded bg-slate-100"
+              >
+                <div
+                  className="h-full rounded bg-sky-600"
+                  style={{ width: `${String((place / total) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {/* Grows into the height of the row rather than leaving a card of
+              empty white under ten items, and stays capped so a page of fifty
+              cannot decide the height of the whole screen. */}
+          <ol className="max-h-[28rem] space-y-1 overflow-y-auto xl:max-h-[56rem] xl:min-h-0 xl:flex-1">
             {items.map((item, itemIndex) => {
               const selected = itemIndex === index
               return (
@@ -335,8 +404,9 @@ export function ReviewQueue() {
                     <span className="block font-medium">
                       {offset + itemIndex + 1}. {humanize(item.name)}
                     </span>
-                    <span className="block font-mono text-xs text-slate-500">
-                      {formatConfidence(item.confidence)} confidence, {lineLabel(item)}
+                    <span className="block text-xs text-slate-500">
+                      <span className="font-mono">{formatConfidence(item.confidence)}</span>{' '}
+                      confidence, {lineLabel(item.line_no)}
                     </span>
                   </button>
                 </li>
@@ -346,17 +416,65 @@ export function ReviewQueue() {
               <li className="px-2 py-4 text-sm text-slate-500">Nothing matches these filters.</li>
             )}
           </ol>
+          <div className="mt-2 border-t border-slate-100 pt-2">
+            <Pager
+              offset={offset}
+              count={items.length}
+              total={total}
+              pageSize={PAGE_SIZE}
+              noun="fields"
+              onOffset={(next) => {
+                turnPage(next, 'first')
+              }}
+            />
+          </div>
         </nav>
 
-        <section className={`${CARD} p-4`} aria-label="Source crop">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
-            Source crop
-          </h2>
+        <section className={`${CARD} flex flex-col p-4`} aria-label="Source crop">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
+              Source crop
+            </h2>
+            {current !== undefined && !cropBroken && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className={BUTTON}
+                  aria-pressed={cropZoomed}
+                  onClick={() => {
+                    setCropZoomed((zoomed) => !zoomed)
+                  }}
+                >
+                  {cropZoomed ? 'Fit to the panel' : 'Zoom to full size'}
+                </button>
+                <a
+                  href={current.crop_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={BUTTON}
+                >
+                  Open in a new tab
+                </a>
+              </div>
+            )}
+          </div>
           {current === undefined ? (
             <p className="mt-3 text-sm text-slate-500">No field selected.</p>
           ) : (
             <>
-              <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-2">
+              {caption !== undefined && (
+                <p className="mt-2 text-sm text-slate-700">
+                  <span className="font-medium">{caption.headline}.</span> {caption.detail}
+                </p>
+              )}
+              {/* The whole premise of this screen is reading the value beside
+                  the pixels it came from, so the image gets the height of the
+                  row rather than a thumbnail's worth of it. */}
+              <div
+                className={`mt-2 h-[30rem] rounded border border-slate-200 bg-slate-50 p-2 xl:h-auto xl:min-h-[34rem] xl:flex-1 ${
+                  cropZoomed ? 'overflow-auto' : 'flex items-center justify-center'
+                }`}
+              >
                 {cropBroken ? (
                   <p className="p-6 text-center text-sm text-slate-500">
                     The crop for this field is not available.
@@ -364,15 +482,26 @@ export function ReviewQueue() {
                 ) : (
                   <img
                     src={current.crop_url}
-                    alt={`Source crop for ${humanize(current.name)} on ${lineLabel(current)} of document ${current.doc_id}`}
-                    className="mx-auto max-h-72 w-auto"
+                    alt={`Source crop for ${describeField(current.name, current.line_no, current.doc_id)}`}
+                    className={
+                      cropZoomed
+                        ? 'max-w-none'
+                        : 'mx-auto max-h-full w-auto max-w-full object-contain'
+                    }
                     onError={() => setCropBroken(true)}
                   />
                 )}
               </div>
-              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              <dl className="mt-3 grid grid-cols-[8rem_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
                 <dt className="text-slate-500">Document</dt>
-                <dd className="font-mono text-slate-900">{current.doc_id}</dd>
+                <dd className="text-slate-900">
+                  <span className="block">{sourceDoc?.label}</span>
+                  {sourceDoc?.parsed === true && (
+                    <span className="block font-mono text-xs text-slate-400" title={sourceDoc.id}>
+                      {sourceDoc.id}
+                    </span>
+                  )}
+                </dd>
                 <dt className="text-slate-500">Raw text</dt>
                 <dd className="font-mono text-slate-900">{current.raw_text ?? 'none'}</dd>
                 {detail.data !== undefined && (
@@ -383,8 +512,6 @@ export function ReviewQueue() {
                         ? 'unknown'
                         : humanize(detail.data.document.doc_type)}
                     </dd>
-                    <dt className="text-slate-500">Quality tier</dt>
-                    <dd className="text-slate-900">{humanize(detail.data.document.quality_tier)}</dd>
                     <dt className="text-slate-500">Route</dt>
                     <dd className="text-slate-900">{humanize(detail.data.document.route)}</dd>
                   </>
@@ -408,8 +535,11 @@ export function ReviewQueue() {
                 </span>
               </div>
               <p className="text-sm text-slate-600">
-                {humanize(current.family)} field on {lineLabel(current)}, field{' '}
-                <span className="font-mono">{current.field_id}</span>
+                {humanize(current.family)} field on {lineLabel(current.line_no)} of{' '}
+                {sourceDoc?.label}
+              </p>
+              <p className="font-mono text-xs text-slate-400" title={current.field_id}>
+                {current.field_id}
               </p>
 
               <div className="mt-4 flex items-baseline gap-6">
@@ -445,13 +575,23 @@ export function ReviewQueue() {
                     onChange={(event) => setDraft(event.target.value)}
                     className={`min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm ${FOCUS_RING}`}
                   />
-                  <button type="button" className={PRIMARY_BUTTON} onClick={saveCorrection}>
+                  <button
+                    type="button"
+                    className={PRIMARY_BUTTON}
+                    disabled={reviewerMissing}
+                    onClick={saveCorrection}
+                  >
                     Save correction
                   </button>
                   <button type="button" className={BUTTON} onClick={acceptCurrent}>
                     Accept <kbd className={KBD}>a</kbd>
                   </button>
                 </div>
+                {reviewerMissing && (
+                  <p className="mt-2 text-sm text-slate-600">
+                    Put your name in the Reviewer box above before saving a correction.
+                  </p>
+                )}
               </div>
 
               {detail.data !== undefined && detail.data.neighbors.length > 0 && (

@@ -36,7 +36,7 @@ export function ReliabilityDiagram({ bins, runId }: Props) {
   const families = familiesOf(bins)
 
   return (
-    <figure className="m-0">
+    <figure className="m-0 grid gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-start">
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="w-full max-w-md"
@@ -110,45 +110,72 @@ export function ReliabilityDiagram({ bins, runId }: Props) {
         </text>
       </svg>
 
-      <figcaption className="mt-2 text-sm text-slate-600">
+      {/* The same pairs the dots are drawn from, printed rather than hidden: it
+          fills the space beside a square chart with the numbers themselves, and
+          a screen reader and a sighted reader then hear the same table. */}
+      {/* Capped to about the height of the chart beside it: a scorecard can
+          publish forty bins, and an uncapped table turns a square figure into a
+          thousand pixels of white space on its left. */}
+      <div className="min-w-0 max-h-[21rem] overflow-y-auto">
+        <table className="w-full text-left text-sm">
+          <caption className="sr-only">Calibration bins</caption>
+          <thead className="sticky top-0 bg-white text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th scope="col" className="py-1 pr-3 font-medium">
+                Family
+              </th>
+              <th scope="col" className="py-1 pr-3 text-right font-medium">
+                Mean confidence
+              </th>
+              <th scope="col" className="py-1 pr-3 text-right font-medium">
+                Empirical accuracy
+              </th>
+              <th scope="col" className="py-1 text-right font-medium">
+                Fields
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {bins.map((bin) => (
+              <tr key={`${bin.field_family}-${bin.mean_confidence}`} className="border-t border-slate-100">
+                <th scope="row" className="py-1.5 pr-3 font-normal text-slate-700">
+                  <span
+                    aria-hidden="true"
+                    className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full align-middle"
+                    style={{ backgroundColor: FAMILY_COLOR[bin.field_family] }}
+                  />
+                  {humanize(bin.field_family)}
+                </th>
+                <td className="py-1.5 pr-3 text-right font-mono text-slate-900">
+                  {formatRate(bin.mean_confidence)}
+                </td>
+                <td className="py-1.5 pr-3 text-right font-mono text-slate-900">
+                  {formatRate(bin.empirical_accuracy)}
+                </td>
+                <td className="py-1.5 text-right font-mono text-slate-600">{bin.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+      </div>
+
+      <figcaption className="text-sm text-slate-600 lg:col-span-2">
         Reliability diagram, run <span className="font-mono">{runId}</span>. A dot on the dashed
         line means the confidence was telling the truth.
-      </figcaption>
-
-      <ul className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
-        {families.map((family) => (
-          <li key={family} className="flex items-center gap-1.5">
-            <span
-              aria-hidden="true"
-              className="inline-block h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: FAMILY_COLOR[family] }}
-            />
-            {humanize(family)}
-          </li>
-        ))}
-      </ul>
-
-      <table className="sr-only">
-        <caption>Calibration bins</caption>
-        <thead>
-          <tr>
-            <th scope="col">Family</th>
-            <th scope="col">Mean confidence</th>
-            <th scope="col">Empirical accuracy</th>
-            <th scope="col">Fields</th>
-          </tr>
-        </thead>
-        <tbody>
-          {bins.map((bin) => (
-            <tr key={`${bin.field_family}-${bin.mean_confidence}`}>
-              <td>{humanize(bin.field_family)}</td>
-              <td>{formatRate(bin.mean_confidence)}</td>
-              <td>{formatRate(bin.empirical_accuracy)}</td>
-              <td>{bin.count}</td>
-            </tr>
+        <span className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
+          {families.map((family) => (
+            <span key={family} className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: FAMILY_COLOR[family] }}
+              />
+              {humanize(family)}
+            </span>
           ))}
-        </tbody>
-      </table>
+        </span>
+      </figcaption>
     </figure>
   )
 }
