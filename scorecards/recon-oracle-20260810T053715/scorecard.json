@@ -1,0 +1,73 @@
+{
+  "run_id": "recon-oracle-20260810T053715",
+  "created_at": "2026-08-10T05:37:15.955499Z",
+  "git_sha": "a134f91",
+  "dataset_config_hash": "e14a532c4bcaff5ee56bda0841b18db68855990c0f683fac63980771f3523343",
+  "master_seed": 42,
+  "split": "test",
+  "models_used": [],
+  "documents_total": 53,
+  "documents_processed": 53,
+  "documents_unprocessable": 0,
+  "field_accuracy": [],
+  "calibration": [],
+  "threshold_sweep": [],
+  "reconciliation": [
+    {
+      "mode": "oracle",
+      "exception_type": "missing_from_ledger",
+      "injected": 14,
+      "detected_true": 14,
+      "detected_false": 0,
+      "injected_dollar_cents": 10515631,
+      "caught_dollar_cents": 10515631
+    },
+    {
+      "mode": "oracle",
+      "exception_type": "missing_from_statement",
+      "injected": 13,
+      "detected_true": 13,
+      "detected_false": 0,
+      "injected_dollar_cents": 11510104,
+      "caught_dollar_cents": 11510104
+    },
+    {
+      "mode": "oracle",
+      "exception_type": "amount_mismatch",
+      "injected": 14,
+      "detected_true": 14,
+      "detected_false": 0,
+      "injected_dollar_cents": 830490,
+      "caught_dollar_cents": 830490
+    },
+    {
+      "mode": "oracle",
+      "exception_type": "duplicate",
+      "injected": 10,
+      "detected_true": 10,
+      "detected_false": 0,
+      "injected_dollar_cents": 13697396,
+      "caught_dollar_cents": 13697396
+    },
+    {
+      "mode": "oracle",
+      "exception_type": "short_pay",
+      "injected": 7,
+      "detected_true": 7,
+      "detected_false": 0,
+      "injected_dollar_cents": 192950,
+      "caught_dollar_cents": 192950
+    },
+    {
+      "mode": "oracle",
+      "exception_type": "timing_difference",
+      "injected": 13,
+      "detected_true": 13,
+      "detected_false": 0,
+      "injected_dollar_cents": 0,
+      "caught_dollar_cents": 0
+    }
+  ],
+  "costs": [],
+  "notes": "Reconciliation in oracle mode over 53 statements."
+}
