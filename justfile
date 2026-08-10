@@ -1,6 +1,6 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-default: lint typecheck test
+default: lint typecheck test test-web
 
 setup:
     uv sync
@@ -24,6 +24,9 @@ test:
 
 test-live:
     uv run pytest -m live -q
+
+test-web:
+    cd frontend; npx tsc -b --noEmit; npm run lint; npm test
 
 probe:
     uv run crossfoot probe
