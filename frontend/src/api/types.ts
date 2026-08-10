@@ -264,7 +264,6 @@ export interface ExceptionRecord {
   doc_id: string | null
   statement_line_no: number | null
   ledger_entry_id: string | null
-  match_key: string | null
   statement_amount_cents: number | null
   ledger_amount_cents: number | null
   dollar_impact_cents: number
@@ -272,6 +271,12 @@ export interface ExceptionRecord {
   explanation: string
   status: ExceptionStatus
   detected_at: string
+  // What closing the exception recorded, from the two columns ExceptionItem
+  // adds to the frozen record. Optional as well as nullable because an API
+  // build from before those columns existed simply omits them, and both read
+  // as "not resolved yet" rather than throwing.
+  resolution?: string | null
+  resolved_at?: string | null
 }
 
 export interface ExceptionListResponse {

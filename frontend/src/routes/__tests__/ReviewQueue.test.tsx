@@ -1,10 +1,15 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 
+import { App } from '../../App'
 import {
+  ACCEPTED_DETAIL,
+  ACCEPTED_ITEM,
+  ACCEPTED_QUEUE,
   AMOUNT_ITEM,
   DETAILS,
   DOC_A,
+  EXCEPTIONS,
   LONG_QUEUE_TOTAL,
   QUEUE,
   SUMMARY,
@@ -314,6 +319,195 @@ describe('the review queue', () => {
   })
 })
 
+// D10. A cold clone was told to loosen filters it had never set.
+describe('a queue with nothing in it', () => {
+  const EMPTY: ApiRoute = { match: /\/api\/review\/queue/, body: { items: [], total: 0 } }
+
+  it('says the database is empty rather than blaming the filters', async () => {
+    installApi(
+      routes([
+        EMPTY,
+        {
+          match: /\/api\/stats\/summary/,
+          body: {
+            ...SUMMARY,
+            fields_extracted: 0,
+            review_queue_depth: 0,
+            review_queue_share: 0,
+          },
+        },
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+
+    expect(
+      await screen.findByText(
+        'No statements have been read into this database yet, so there is nothing to review.',
+      ),
+    ).toBeTruthy()
+    expect(screen.queryByText('Nothing matches these filters.')).toBeNull()
+  })
+
+  it('still blames the filters when the database has fields and none match', async () => {
+    installApi(routes([EMPTY]))
+    renderWithProviders(<ReviewQueue />)
+
+    expect(await screen.findByText('Nothing matches these filters.')).toBeTruthy()
+  })
+})
+
+// D1. Focusing the Status select and pressing `a`, which is how a browser jumps
+// to the first option starting with A, recorded a human acceptance nobody made.
+// The queue depth fell by one with the filter still on needs_review.
+describe('keys pressed inside a form control', () => {
+  it('accepts nothing when a is pressed inside a filter select', async () => {
+    const api = installApi(routes())
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+
+    fireEvent.keyDown(screen.getByLabelText('Status'), { key: 'a' })
+    fireEvent.keyDown(screen.getByLabelText('Family'), { key: 'a' })
+    // The same key on the page itself does accept, so the count below is the
+    // guard working rather than the test having pressed nothing at all.
+    fireEvent.keyDown(window, { key: 'a' })
+
+    await waitFor(() => {
+      expect(api.calls.filter((call) => call.url.endsWith('/accept'))).toHaveLength(1)
+    })
+  })
+
+  it('leaves the queue and the correction box alone for j, k and c in a select', async () => {
+    installApi(routes())
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+
+    const statusFilter = screen.getByLabelText('Status')
+    fireEvent.keyDown(statusFilter, { key: 'j' })
+    fireEvent.keyDown(statusFilter, { key: 'k' })
+    fireEvent.keyDown(statusFilter, { key: 'c' })
+
+    expect(screen.getByRole('heading', { name: 'VIN', level: 2 })).toBeTruthy()
+    expect(document.activeElement).not.toBe(screen.getByLabelText(/Correction/))
+  })
+
+  it('still moves and accepts from the page itself', async () => {
+    const api = installApi(routes())
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+
+    fireEvent.keyDown(window, { key: 'j' })
+    await screen.findByRole('heading', { name: 'Line amount', level: 2 })
+    fireEvent.keyDown(window, { key: 'a' })
+
+    await waitFor(() => {
+      expect(
+        api.calls.some((call) => call.url === `/api/review/items/${AMOUNT_ITEM.field_id}/accept`),
+      ).toBe(true)
+    })
+  })
+})
+
+// D6. scrollIntoView on mount moved Chrome's sequential focus starting point
+// into the queue list, so the first Tab skipped the skip link, the nav and the
+// three filter controls.
+describe('scrolling the queue list', () => {
+  function trackScrolls(): Mock {
+    const scrolled = vi.fn()
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: scrolled,
+    })
+    return scrolled
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+  })
+
+  it('scrolls nothing for the landing selection the page made for itself', async () => {
+    const scrolled = trackScrolls()
+    installApi(routes())
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+    expect(scrolled).not.toHaveBeenCalled()
+  })
+
+  it('scrolls nothing when a filter change restarts the queue', async () => {
+    const scrolled = trackScrolls()
+    installApi(routes())
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+
+    fireEvent.change(screen.getByLabelText('Family'), { target: { value: 'amount' } })
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'VIN', level: 2 })).toBeTruthy()
+    })
+    expect(scrolled).not.toHaveBeenCalled()
+  })
+
+  it('keeps the selected field in view once the reviewer is moving', async () => {
+    const scrolled = trackScrolls()
+    installApi(routes())
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+
+    fireEvent.keyDown(window, { key: 'j' })
+    await screen.findByRole('heading', { name: 'Line amount', level: 2 })
+    expect(scrolled).toHaveBeenCalled()
+  })
+})
+
+// D3. Setting Status to "Auto accepted" is one dropdown from the landing state,
+// and every field behind it was headed "Why this field is in the queue".
+describe('a field that is not in the queue', () => {
+  function acceptedRoutes(): ApiRoute[] {
+    return routes([
+      { match: /\/api\/review\/queue/, body: ACCEPTED_QUEUE },
+      { match: /\/api\/review\/items\/[^/]+$/, body: ACCEPTED_DETAIL },
+    ])
+  }
+
+  it('does not claim an auto accepted field is in the queue', async () => {
+    installApi(acceptedRoutes())
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'Statement date', level: 2 })
+
+    expect(await screen.findByRole('heading', { name: 'What the signals said' })).toBeTruthy()
+    expect(screen.queryByText('Why this field is in the queue')).toBeNull()
+  })
+
+  it('does not tell the reviewer the model held back a field it accepted', async () => {
+    installApi(acceptedRoutes())
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'Statement date', level: 2 })
+
+    expect(await screen.findByText('No signal raised a concern about this field.')).toBeTruthy()
+    expect(screen.queryByText(/below the auto accept threshold/)).toBeNull()
+  })
+
+  it('keeps the queue wording for a field that really is in the queue', async () => {
+    installApi(
+      routes([
+        {
+          match: /\/api\/review\/queue/,
+          body: { items: [{ ...ACCEPTED_ITEM, status: 'needs_review' }], total: 1 },
+        },
+        {
+          match: /\/api\/review\/items\/[^/]+$/,
+          body: { ...ACCEPTED_DETAIL, status: 'needs_review' },
+        },
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'Statement date', level: 2 })
+
+    expect(await screen.findByRole('heading', { name: 'Why this field is in the queue' }))
+      .toBeTruthy()
+    expect(screen.getByText(/below the auto accept threshold for its family/)).toBeTruthy()
+  })
+})
+
 // A1. The tier is dataset generator metadata. Showing it implies the system
 // knows something no real statement carries, which is the whole reason the
 // confidence model was stripped of it.
@@ -341,7 +535,7 @@ describe('what the review surface refuses to show', () => {
     installApi(routes())
     renderWithProviders(<ReviewQueue />)
     expect(await screen.findByText('Route')).toBeTruthy()
-    expect(screen.getAllByText('Scanned pdf').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Scanned PDF').length).toBeGreaterThan(0)
   })
 })
 
@@ -799,7 +993,9 @@ describe('what a correction turns out to have been worth', () => {
 
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('value is not parseable for family reference')
-    expect(screen.queryByRole('status')).toBeNull()
+    // The live region stays mounted, and stays empty. It is the claim that is
+    // absent, not the container.
+    expect(screen.getByRole('status').textContent).toBe('')
     expect(screen.queryByText('Correction saved')).toBeNull()
   })
 
@@ -824,6 +1020,209 @@ describe('what a correction turns out to have been worth', () => {
     await screen.findByRole('heading', { name: 'Line amount', level: 2 })
 
     expect(screen.getByText(/Cleared 1 exception\./)).toBeTruthy()
+  })
+})
+
+// D4. The panel echoed the draft, so "$1,840" was reported as saved while the
+// database held 1840.00 and "7/4/2026" while it held 2026-07-04.
+describe('the value the panel says was saved', () => {
+  /** A correct route that stores the canonical form of whatever was typed. */
+  function canonicalRoute(stored: string): ApiRoute {
+    return {
+      method: 'POST',
+      match: /\/correct$/,
+      body: (url: string) => ({
+        ...VIN_ITEM,
+        field_id: fieldIdFrom(url),
+        status: 'human_corrected',
+        value: stored,
+      }),
+    }
+  }
+
+  async function save(value: string): Promise<void> {
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+    await typeReviewer('R Chaurasia')
+    fireEvent.keyDown(window, { key: 'c' })
+    const input = screen.getByLabelText(/Correction/)
+    fireEvent.change(input, { target: { value } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+  }
+
+  it('reports the amount the API stored, not the amount that was typed', async () => {
+    installApi(routes([canonicalRoute('1840.00')]))
+    renderWithProviders(<ReviewQueue />)
+    await save('$1,840')
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('saved as')
+    })
+    const outcome = screen.getByRole('status')
+    expect(outcome.textContent).toContain('1840.00')
+    expect(outcome.textContent).not.toContain('$1,840')
+  })
+
+  it('reports the date the API stored, not the date that was typed', async () => {
+    installApi(routes([canonicalRoute('2026-07-04')]))
+    renderWithProviders(<ReviewQueue />)
+    await save('7/4/2026')
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('saved as')
+    })
+    const outcome = screen.getByRole('status')
+    expect(outcome.textContent).toContain('2026-07-04')
+    expect(outcome.textContent).not.toContain('7/4/2026')
+  })
+
+  it('shows the typed text only while the write is still open', async () => {
+    let release = (): void => {}
+    const held = new Promise<void>((resolve) => {
+      release = () => {
+        resolve()
+      }
+    })
+    installApi(
+      routes([
+        {
+          method: 'POST',
+          match: /\/correct$/,
+          body: (url: string) =>
+            held.then(() => ({
+              ...VIN_ITEM,
+              field_id: fieldIdFrom(url),
+              status: 'human_corrected',
+              value: '2026-07-04',
+            })),
+        },
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await save('7/4/2026')
+
+    const outcome = await screen.findByRole('status')
+    await waitFor(() => {
+      expect(outcome.textContent).toContain('7/4/2026')
+    })
+    // Nothing is stored yet, so the panel does not yet say anything was.
+    expect(outcome.textContent).toContain('saving as')
+    expect(outcome.textContent).not.toContain('saved as')
+
+    release()
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain('2026-07-04')
+    })
+    expect(screen.getByRole('status').textContent).not.toContain('7/4/2026')
+  })
+})
+
+// D5. The success panel goes to trouble to say which field it is about. A
+// refusal said nothing, and by the time it arrived the reviewer had moved on.
+describe('a correction the API refuses', () => {
+  async function save(value: string): Promise<void> {
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+    await typeReviewer('R Chaurasia')
+    fireEvent.keyDown(window, { key: 'c' })
+    const input = screen.getByLabelText(/Correction/)
+    fireEvent.change(input, { target: { value } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+  }
+
+  function refusingRoutes(detail: unknown): ApiRoute[] {
+    return routes([{ method: 'POST', match: /\/correct$/, status: 422, body: { detail } }])
+  }
+
+  it('names the field the refusal is about, not the one now on screen', async () => {
+    installApi(refusingRoutes('value is not parseable for family reference'))
+    renderWithProviders(<ReviewQueue />)
+    await save('not a vin')
+
+    await screen.findByRole('heading', { name: 'Line amount', level: 2 })
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain(
+      'VIN on line 1 of Meridian floorplan statement, June 2026, document 2 was not saved.',
+    )
+    expect(alert.textContent).toContain('value is not parseable for family reference')
+  })
+
+  it('reads as a sentence when the framework refused rather than a route', async () => {
+    installApi(
+      refusingRoutes([
+        {
+          type: 'string_too_long',
+          loc: ['body', 'value'],
+          msg: 'String should have at most 256 characters',
+          input: 'K'.repeat(300),
+        },
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    await save('K'.repeat(300))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain(
+      'The server would not accept that. Check the value and try again.',
+    )
+    expect(alert.textContent).not.toContain('string_too_long')
+    expect(alert.textContent).not.toContain('KKKK')
+  })
+
+  it('wraps a long refusal rather than pushing the card past the viewport', async () => {
+    installApi(refusingRoutes(`value is not parseable: ${'K'.repeat(300)}`))
+    renderWithProviders(<ReviewQueue />)
+    await save('K'.repeat(300))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.className).toContain('break-words')
+  })
+})
+
+// D9. A reviewer checks the dashboard against the number the panel just claimed
+// and comes back. The claim used to be gone.
+describe('the outcome panel across a page change', () => {
+  it('is still there after a trip to the exceptions dashboard and back', async () => {
+    installApi([
+      { match: /\/api\/exceptions/, body: EXCEPTIONS },
+      ...routes([
+        correctRoute({
+          exceptions_removed: 1,
+          exceptions_added: 0,
+          dollars_at_risk_change_cents: -184_000,
+        }),
+      ]),
+    ])
+    renderWithProviders(<App />)
+
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+    await typeReviewer('R Chaurasia')
+    fireEvent.keyDown(window, { key: 'c' })
+    const input = screen.getByLabelText(/Correction/)
+    fireEvent.change(input, { target: { value: '1G1ZT53826F109149' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await screen.findByText(/Cleared 1 exception\./)
+
+    fireEvent.click(screen.getByRole('link', { name: 'Exceptions' }))
+    await screen.findByText(/ranked by how/)
+
+    fireEvent.click(screen.getByRole('link', { name: 'Review queue' }))
+    expect(await screen.findByText(/Cleared 1 exception\./)).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toContain(
+      'VIN on line 1 of Meridian floorplan statement, June 2026, document 2',
+    )
+  })
+})
+
+// D10. A live region inserted into the page the moment it has something to say
+// is missed by some screen readers.
+describe('the live region around the outcome', () => {
+  it('is mounted and empty before any correction is saved', async () => {
+    installApi(routes())
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'VIN', level: 2 })
+
+    const region = screen.getByRole('status')
+    expect(region.getAttribute('aria-live')).toBe('polite')
+    expect(region.textContent).toBe('')
   })
 })
 

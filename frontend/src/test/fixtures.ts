@@ -216,11 +216,54 @@ export const TABULAR_DETAIL: ReviewItemDetail = {
 
 export const TABULAR_QUEUE: ReviewQueueResponse = { items: [TABULAR_ITEM], total: 1 }
 
+// A field the model took on its own, with nothing wrong with it. Filtering the
+// queue to "Auto accepted" is one dropdown from the landing state, and every
+// field behind that filter looks like this.
+export const ACCEPTED_ITEM: ReviewItem = {
+  field_id: `fld-${DOC_C}-0002-statement_date`,
+  doc_id: DOC_C,
+  line_no: null,
+  name: 'statement_date',
+  family: 'date',
+  raw_text: '2026-04-30',
+  value: '2026-04-30',
+  confidence: 0.99,
+  status: 'auto_accepted',
+  crop_url: `/api/crops/${DOC_C}/fld-${DOC_C}-0002-statement_date.png`,
+}
+
+export const ACCEPTED_DETAIL: ReviewItemDetail = {
+  ...ACCEPTED_ITEM,
+  crop_kind: null,
+  crop_unavailable_reason: 'no_page_image',
+  signals: {
+    self_consistency: 1,
+    det_llm_agreement: 1,
+    validator_pass: 1,
+    grammar_match: null,
+    crossfoot_ok: 1,
+    crossfoot_residual_suspect: false,
+    char_ambiguity: 0,
+    route: 'csv',
+  },
+  document: {
+    doc_id: DOC_C,
+    doc_type: 'parts_statement',
+    quality_tier: 'csv',
+    route: 'csv',
+    split: 'calibration',
+  },
+  neighbors: [],
+}
+
+export const ACCEPTED_QUEUE: ReviewQueueResponse = { items: [ACCEPTED_ITEM], total: 1 }
+
 export const DETAILS: Record<string, ReviewItemDetail> = {
   [VIN_ITEM.field_id]: VIN_DETAIL,
   [AMOUNT_ITEM.field_id]: AMOUNT_DETAIL,
   [CLAIM_ITEM.field_id]: CLAIM_DETAIL,
   [TABULAR_ITEM.field_id]: TABULAR_DETAIL,
+  [ACCEPTED_ITEM.field_id]: ACCEPTED_DETAIL,
 }
 
 // The exceptions contract test's seeded rows, already in the API's ranking:
@@ -234,7 +277,6 @@ export const EXCEPTIONS: ExceptionListResponse = {
       doc_id: DOC_A,
       statement_line_no: 3,
       ledger_entry_id: null,
-      match_key: 'ro:RO123456',
       statement_amount_cents: 50_000,
       ledger_amount_cents: 300_000,
       dollar_impact_cents: 250_000,
@@ -250,7 +292,6 @@ export const EXCEPTIONS: ExceptionListResponse = {
       doc_id: DOC_A,
       statement_line_no: 5,
       ledger_entry_id: null,
-      match_key: null,
       statement_amount_cents: 60_000,
       ledger_amount_cents: null,
       dollar_impact_cents: -60_000,
@@ -258,6 +299,8 @@ export const EXCEPTIONS: ExceptionListResponse = {
       explanation: 'line 5 repeats line 4',
       status: 'resolved',
       detected_at: '2026-08-01T12:00:00Z',
+      resolution: 'credited on the next statement',
+      resolved_at: '2026-08-02T09:15:00Z',
     },
     {
       exception_id: 'exc-1',
@@ -266,7 +309,6 @@ export const EXCEPTIONS: ExceptionListResponse = {
       doc_id: DOC_A,
       statement_line_no: 1,
       ledger_entry_id: 'led-parts_payable-00007',
-      match_key: 'invoice:M1234567',
       statement_amount_cents: 105_000,
       ledger_amount_cents: 150_000,
       dollar_impact_cents: -45_000,
@@ -282,7 +324,6 @@ export const EXCEPTIONS: ExceptionListResponse = {
       doc_id: DOC_A,
       statement_line_no: 2,
       ledger_entry_id: null,
-      match_key: null,
       statement_amount_cents: 12_000,
       ledger_amount_cents: null,
       dollar_impact_cents: 12_000,
@@ -298,7 +339,6 @@ export const EXCEPTIONS: ExceptionListResponse = {
       doc_id: DOC_A,
       statement_line_no: 4,
       ledger_entry_id: 'led-parts_payable-00011',
-      match_key: null,
       statement_amount_cents: 88_000,
       ledger_amount_cents: 88_000,
       dollar_impact_cents: 0,

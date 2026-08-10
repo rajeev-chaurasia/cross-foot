@@ -90,11 +90,20 @@ export function pageRangeLabel(
   )
 }
 
+/**
+ * Wire words that are acronyms and have to stay acronyms.
+ *
+ * The file formats are here for the same reason VIN is: a dealership reviewer
+ * reading "Route: Xlsx" or "How this file was read: Csv" is being shown a
+ * spelling nobody uses. Sentence case is for words, not for initialisms.
+ */
+const ACRONYMS = new Set(['vin', 'ro', 'csv', 'pdf', 'xlsx'])
+
 /** snake_case wire vocabulary to something a dealership CFO reads without help. */
 export function humanize(value: string): string {
   return value
     .split('_')
-    .map((word) => (word === 'vin' || word === 'ro' ? word.toUpperCase() : word))
+    .map((word) => (ACRONYMS.has(word) ? word.toUpperCase() : word))
     .join(' ')
     .replace(/^./, (first) => first.toUpperCase())
 }

@@ -56,6 +56,7 @@ describe('the caches a review write invalidates', () => {
       fieldId: VIN_ITEM.field_id,
       value: '1G1ZT53826F109149',
       reviewer: 'R Chaurasia',
+      label: 'VIN on line 1 of Meridian floorplan statement, June 2026, document 2',
     })
 
     await waitFor(() => {
@@ -94,6 +95,7 @@ describe('the caches a review write invalidates', () => {
       fieldId: VIN_ITEM.field_id,
       value: '1G1ZT53826F109149',
       reviewer: 'R Chaurasia',
+      label: 'VIN on line 1 of Meridian floorplan statement, June 2026, document 2',
     })
 
     await waitFor(() => {

@@ -98,4 +98,18 @@ describe('humanize', () => {
     expect(humanize('vin')).toBe('VIN')
     expect(humanize('ro_number')).toBe('RO number')
   })
+
+  // "Route: Xlsx" and "How this file was read: Csv" were on the screen a
+  // dealership clerk works all day.
+  it('spells the file formats the way a reader writes them', () => {
+    expect(humanize('csv')).toBe('CSV')
+    expect(humanize('xlsx')).toBe('XLSX')
+    expect(humanize('digital_pdf')).toBe('Digital PDF')
+    expect(humanize('scanned_pdf')).toBe('Scanned PDF')
+  })
+
+  it('leaves ordinary words in sentence case', () => {
+    expect(humanize('unprocessable')).toBe('Unprocessable')
+    expect(humanize('clean_digital')).toBe('Clean digital')
+  })
 })

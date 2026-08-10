@@ -159,6 +159,40 @@ describe('the exceptions dashboard', () => {
   })
 })
 
+// D8. A reviewer typed a resolution, clicked Mark resolved, and the note was
+// never shown again anywhere in the product.
+describe('the resolution a reviewer wrote', () => {
+  function detailFor(exceptionId: string): HTMLElement {
+    return document.querySelector(`#exception-detail-${exceptionId}`) as HTMLElement
+  }
+
+  it('shows the note and when it was written on a closed exception', async () => {
+    installApi(routes())
+    renderWithProviders(<Exceptions />)
+    await screen.findByText(/Showing 1 to 5 of 5 exceptions/)
+
+    fireEvent.click(within(rowFor('Duplicate')).getByRole('button', { name: 'Compare' }))
+    const detail = await waitFor(() => detailFor('exc-5'))
+
+    expect(within(detail).getByText('Resolution')).toBeTruthy()
+    expect(within(detail).getByText('credited on the next statement')).toBeTruthy()
+    expect(within(detail).getByText('Resolved')).toBeTruthy()
+    expect(within(detail).getByText('2026-08-02 09:15 UTC')).toBeTruthy()
+  })
+
+  it('offers the box rather than a note while the exception is still open', async () => {
+    installApi(routes())
+    renderWithProviders(<Exceptions />)
+    await screen.findByText(/Showing 1 to 5 of 5 exceptions/)
+
+    fireEvent.click(within(rowFor('Amount mismatch')).getByRole('button', { name: 'Compare' }))
+    const detail = await waitFor(() => detailFor('exc-1'))
+
+    expect(within(detail).getByLabelText('Resolution')).toBeTruthy()
+    expect(within(detail).queryByText('Resolved')).toBeNull()
+  })
+})
+
 // A2. The document column used to be a primary key.
 describe('naming the document on the dashboard', () => {
   it('names the statement in words, with the key underneath it', async () => {

@@ -29,7 +29,7 @@ describe('signalRows', () => {
     const rows = signalRows(CLAIM_DETAIL.signals, 'reference', 'claim_number')
     const route = rows.find((row) => row.key === 'route')
     expect(route?.verdict).toBe('info')
-    expect(route?.display).toBe('Scanned pdf')
+    expect(route?.display).toBe('Scanned PDF')
   })
 
   // A4. The table under the plain sentence has to read in the same register.

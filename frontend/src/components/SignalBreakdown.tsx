@@ -1,6 +1,6 @@
 /** The evidence behind one field's confidence, with the failures called out. */
 
-import type { FieldFamily, FieldName, FieldSignals } from '../api/types'
+import type { FieldFamily, FieldName, FieldSignals, ReviewStatus } from '../api/types'
 import { flagReasons, signalRows, type SignalVerdict } from '../lib/signals'
 
 const VERDICT_LABEL: Record<SignalVerdict, string> = {
@@ -21,21 +21,28 @@ interface Props {
   signals: FieldSignals
   family: FieldFamily
   name: FieldName
+  /** Whether this field is actually in the queue, which decides the wording. */
+  status: ReviewStatus
 }
 
-export function SignalBreakdown({ signals, family, name }: Props) {
+export function SignalBreakdown({ signals, family, name, status }: Props) {
   const rows = signalRows(signals, family, name)
   const reasons = flagReasons(rows)
+  // Filtering to "Auto accepted" is one dropdown from the landing state, and
+  // every field there used to be headed "Why this field is in the queue" and
+  // told the reviewer the model had held it back. Neither was true of it.
+  const inQueue = status === 'needs_review'
 
   return (
     <section aria-labelledby="signal-breakdown-heading" className="mt-4">
       <h3 id="signal-breakdown-heading" className="text-sm font-semibold text-slate-900">
-        Why this field is in the queue
+        {inQueue ? 'Why this field is in the queue' : 'What the signals said'}
       </h3>
       {reasons.length === 0 ? (
         <p className="mt-1 text-sm text-slate-600">
-          No single signal failed. The confidence model still put this below the auto accept
-          threshold for its family.
+          {inQueue
+            ? 'No single signal failed. The confidence model still put this below the auto accept threshold for its family.'
+            : 'No signal raised a concern about this field.'}
         </p>
       ) : (
         <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-800">

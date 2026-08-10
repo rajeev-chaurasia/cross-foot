@@ -26,7 +26,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { useReviewItem, useReviewQueue, useReviewWrite, useSummary } from '../api/queries'
+import {
+  useLastCorrection,
+  useReviewItem,
+  useReviewQueue,
+  useReviewWrite,
+  useSummary,
+} from '../api/queries'
 import type { FieldFamily, ReviewItem, ReviewStatus, ReviewQueueParams } from '../api/types'
 import { FIELD_FAMILIES, REVIEW_STATUSES } from '../api/types'
 import { CorrectionOutcome } from '../components/CorrectionOutcome'
@@ -50,6 +56,9 @@ const STATUS_CLASS: Record<ReviewStatus, string> = {
 /** Which end of a freshly loaded page the reviewer should land on. */
 type QueueEdge = 'first' | 'last'
 
+const ALERT =
+  'break-words rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900'
+
 export function ReviewQueue() {
   const [status, setStatus] = useState<ReviewStatus | ''>('needs_review')
   const [family, setFamily] = useState<FieldFamily | ''>('')
@@ -60,13 +69,6 @@ export function ReviewQueue() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [cropBroken, setCropBroken] = useState(false)
   const [cropZoomed, setCropZoomed] = useState(false)
-  // What the last correction was written against. Captured at save time because
-  // the reviewer has already moved on by the time the answer comes back, so the
-  // selected field is no longer the one the outcome is about.
-  const [lastCorrection, setLastCorrection] = useState<{
-    label: string
-    value: string
-  } | null>(null)
 
   const params: ReviewQueueParams = {
     limit: PAGE_SIZE,
@@ -78,6 +80,10 @@ export function ReviewQueue() {
   const summary = useSummary()
   const queue = useReviewQueue(params)
   const { accept, correct } = useReviewWrite()
+  // Read from the mutation rather than from state here, so it outlives this
+  // component: a reviewer who leaves to check the dashboard number the panel
+  // claimed comes back to the same claim.
+  const lastCorrection = useLastCorrection()
 
   const pageItems = queue.data?.items
   const items = pageItems ?? []
@@ -85,6 +91,11 @@ export function ReviewQueue() {
 
   const fallbackIndex = useRef(0)
   const pendingEdge = useRef<QueueEdge | null>(null)
+  // Whether the field on screen is there because the reviewer went to it. A
+  // selection the page made for itself must not scroll the list: scrolling on
+  // mount moves the browser's sequential focus starting point into the queue,
+  // and the first Tab then skips the skip link, the nav and the filters.
+  const reviewerMoved = useRef(false)
   const correctionRef = useRef<HTMLInputElement>(null)
   const reviewerRef = useRef<HTMLInputElement>(null)
   const selectedRef = useRef<HTMLLIElement>(null)
@@ -108,6 +119,7 @@ export function ReviewQueue() {
     setSelectedId(null)
     fallbackIndex.current = 0
     pendingEdge.current = null
+    reviewerMoved.current = false
   }, [status, family])
 
   // A page turn lands on the end the reviewer arrived from, so j and k retrace
@@ -134,10 +146,14 @@ export function ReviewQueue() {
   }, [currentId, currentValue])
 
   useEffect(() => {
+    if (!reviewerMoved.current) {
+      return
+    }
     selectedRef.current?.scrollIntoView?.({ block: 'nearest' })
   }, [currentId])
 
   const turnPage = (nextOffset: number, edge: QueueEdge): void => {
+    reviewerMoved.current = true
     pendingEdge.current = edge
     setSelectedId(null)
     fallbackIndex.current = edge === 'last' ? Number.MAX_SAFE_INTEGER : 0
@@ -148,6 +164,7 @@ export function ReviewQueue() {
     if (items.length === 0) {
       return
     }
+    reviewerMoved.current = true
     const next = index + delta
     if (next < 0) {
       if (offset > 0) {
@@ -171,6 +188,7 @@ export function ReviewQueue() {
     if (index >= 0 && index + 1 < items.length) {
       const target = items[index + 1]
       if (target !== undefined) {
+        reviewerMoved.current = true
         setSelectedId(target.field_id)
       }
     }
@@ -197,14 +215,16 @@ export function ReviewQueue() {
       reviewerRef.current?.focus()
       return
     }
-    setLastCorrection({
-      label: describeField(current.name, current.line_no, current.doc_id),
-      value: draft,
-    })
     // Fired, not awaited. The queue advances on the next line so the keyboard
     // flow never waits on the round trip, and the outcome panel reports back
-    // whenever the server has finished reconciling the document.
-    correct.mutate({ fieldId: current.field_id, value: draft, reviewer: namedReviewer })
+    // whenever the server has finished reconciling the document. The label goes
+    // with the write because by then this field is no longer the one on screen.
+    correct.mutate({
+      fieldId: current.field_id,
+      value: draft,
+      reviewer: namedReviewer,
+      label: describeField(current.name, current.line_no, current.doc_id),
+    })
     advance()
   }
 
@@ -214,11 +234,19 @@ export function ReviewQueue() {
         return
       }
       const target = event.target as HTMLElement | null
-      const typing =
+      // A select is included because pressing `a` inside one is how a browser
+      // jumps to the first option starting with A. Leaving it out meant that
+      // keystroke fell through to the shortcut and accepted a field, recording
+      // a human decision nobody made, which is the one thing a review tool
+      // must never do.
+      const ownsItsKeys =
         target !== null &&
-        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
 
-      if (typing) {
+      if (ownsItsKeys) {
         if (event.key === 'Enter' && target === correctionRef.current) {
           event.preventDefault()
           saveCorrection()
@@ -265,7 +293,7 @@ export function ReviewQueue() {
     }
   })
 
-  const writeError = accept.error ?? correct.error
+  const correctionError = lastCorrection?.error ?? null
   const place = offset + index + 1
   const position =
     current === undefined
@@ -273,6 +301,14 @@ export function ReviewQueue() {
       : `Field ${place} of ${total}. ` +
         `${describeField(current.name, current.line_no, current.doc_id)}. ` +
         `Confidence ${formatConfidence(current.confidence)}. Status ${humanize(current.status)}.`
+
+  // A clone with nothing in it is not a filter that matched nothing. Sending a
+  // reader off to loosen filters they never set is the wrong instruction, and
+  // the count that tells the two apart is one the API published.
+  const emptyNote =
+    summary.data?.fields_extracted === 0
+      ? 'No statements have been read into this database yet, so there is nothing to review.'
+      : 'Nothing matches these filters.'
 
   const sourceDoc = current === undefined ? undefined : describeDocument(current.doc_id)
   // The caption and the picture are one answer the API gives: the detail route
@@ -291,7 +327,10 @@ export function ReviewQueue() {
 
       <section className={`${CARD} p-4`} aria-labelledby="queue-claim">
         <div className="flex flex-wrap items-baseline justify-between gap-4">
-          <div>
+          {/* The intro grows to whatever the paragraph needs unless it is told
+              it may shrink, and while it filled the row the page count wrapped
+              underneath it at every desktop width. */}
+          <div className="min-w-0 flex-1 basis-80">
             <h1 id="queue-claim" className="text-sm font-medium uppercase tracking-wide text-slate-500">
               Review queue
             </h1>
@@ -315,7 +354,7 @@ export function ReviewQueue() {
               </p>
             )}
           </div>
-          <div className="text-right text-sm text-slate-600">
+          <div className="shrink-0 text-sm text-slate-600 sm:text-right">
             <p>
               Page <span className="font-mono">{Math.floor(offset / PAGE_SIZE) + 1}</span> of{' '}
               <span className="font-mono">
@@ -388,14 +427,24 @@ export function ReviewQueue() {
         {position}
       </p>
 
-      {writeError !== null && writeError !== undefined && (
-        <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
-          {writeError.message}
+      {accept.error !== null && (
+        <p role="alert" className={ALERT}>
+          {accept.error.message}
+        </p>
+      )}
+
+      {/* A refusal names its field for the same reason the outcome panel does:
+          saving advances the queue, so by the time the answer comes back the
+          reviewer is looking at something else and an unattributed refusal
+          reads as a complaint about the field in front of them. */}
+      {correctionError !== null && lastCorrection !== null && (
+        <p role="alert" className={ALERT}>
+          {lastCorrection.label} was not saved. {correctionError.message}
         </p>
       )}
 
       {queue.isError && (
-        <p role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+        <p role="alert" className={ALERT}>
           The queue could not be loaded. {queue.error.message}
         </p>
       )}
@@ -403,10 +452,11 @@ export function ReviewQueue() {
       {/* Above the grid rather than inside a panel, so moving to the next field
           does not take the answer away with it. */}
       <CorrectionOutcome
-        status={correct.status}
+        status={lastCorrection?.status ?? 'idle'}
         fieldLabel={lastCorrection?.label ?? null}
-        value={lastCorrection?.value ?? null}
-        reconciliation={correct.data?.reconciliation}
+        typed={lastCorrection?.typed ?? null}
+        saved={lastCorrection?.saved ?? null}
+        reconciliation={lastCorrection?.reconciliation}
       />
 
       <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[15rem_minmax(0,1.35fr)_minmax(0,1fr)]">
@@ -442,7 +492,10 @@ export function ReviewQueue() {
                   <button
                     type="button"
                     aria-current={selected ? 'true' : undefined}
-                    onClick={() => setSelectedId(item.field_id)}
+                    onClick={() => {
+                      reviewerMoved.current = true
+                      setSelectedId(item.field_id)
+                    }}
                     className={`w-full rounded px-2 py-1.5 text-left text-sm ${FOCUS_RING} ${
                       selected ? 'bg-sky-100 text-sky-950' : 'text-slate-700 hover:bg-slate-50'
                     }`}
@@ -459,7 +512,7 @@ export function ReviewQueue() {
               )
             })}
             {items.length === 0 && !queue.isPending && (
-              <li className="px-2 py-4 text-sm text-slate-500">Nothing matches these filters.</li>
+              <li className="px-2 py-4 text-sm text-slate-500">{emptyNote}</li>
             )}
           </ol>
           <div className="mt-2 border-t border-slate-100 pt-2">
@@ -618,6 +671,7 @@ export function ReviewQueue() {
                   signals={detail.data.signals}
                   family={detail.data.family}
                   name={detail.data.name}
+                  status={detail.data.status}
                 />
               )}
 

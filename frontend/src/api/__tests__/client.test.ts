@@ -67,3 +67,64 @@ describe('the typed client', () => {
     expect((error as ApiError).status).toBe(500)
   })
 })
+
+// A 300 character correction put the whole pydantic error object on the screen,
+// echoed input and all, and the unbroken token pushed the card past the viewport.
+describe('an error the framework wrote rather than a person', () => {
+  const OVERLONG = 'K'.repeat(300)
+
+  function validationRoute(): void {
+    installApi([
+      {
+        method: 'POST',
+        match: /\/correct$/,
+        status: 422,
+        body: {
+          detail: [
+            {
+              type: 'string_too_long',
+              loc: ['body', 'value'],
+              msg: 'String should have at most 256 characters',
+              input: OVERLONG,
+            },
+          ],
+        },
+      },
+    ])
+  }
+
+  async function refusal(): Promise<ApiError> {
+    return (await correctReviewItem('fld-a-0002', {
+      value: OVERLONG,
+      reviewer: 'rc',
+    }).catch((raised: unknown) => raised)) as ApiError
+  }
+
+  it('answers a validation list with a sentence', async () => {
+    validationRoute()
+    expect((await refusal()).message).toBe(
+      'The server would not accept that. Check the value and try again.',
+    )
+  })
+
+  it('puts none of the wire object in front of the reviewer', async () => {
+    validationRoute()
+    const message = (await refusal()).message
+    expect(message).not.toContain('string_too_long')
+    expect(message).not.toContain('loc')
+    expect(message).not.toContain(OVERLONG)
+    expect(message).not.toContain('[{')
+  })
+
+  it('still shows the explanation when a route wrote one itself', async () => {
+    installApi([
+      {
+        method: 'POST',
+        match: /\/correct$/,
+        status: 422,
+        body: { detail: 'value is not parseable for family amount' },
+      },
+    ])
+    expect((await refusal()).message).toBe('value is not parseable for family amount')
+  })
+})

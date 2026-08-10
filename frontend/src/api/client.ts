@@ -48,6 +48,18 @@ function queryString(params: Record<string, QueryValue>): string {
   return encoded === '' ? '' : `?${encoded}`
 }
 
+/**
+ * What to say when `detail` is not a sentence.
+ *
+ * A route that refuses something on purpose raises with a string, and that
+ * string was written for a reader. FastAPI's automatic 422 instead sends
+ * `detail` as a list of validation objects, which names the request body's
+ * shape and carries the rejected input back verbatim. Printing that list put
+ * `[{"type":"string_too_long","loc":["body","value"],...}]` in front of a
+ * dealership reviewer, so the list is answered with a sentence instead.
+ */
+const UNWRITTEN_DETAIL = 'The server would not accept that. Check the value and try again.'
+
 async function errorFrom(response: Response): Promise<ApiError> {
   const fallback = `${response.status} ${response.statusText}`.trim()
   let message = fallback
@@ -55,7 +67,7 @@ async function errorFrom(response: Response): Promise<ApiError> {
     const body: unknown = await response.json()
     if (body !== null && typeof body === 'object' && 'detail' in body) {
       const detail = (body as { detail: unknown }).detail
-      message = typeof detail === 'string' ? detail : JSON.stringify(detail)
+      message = typeof detail === 'string' && detail !== '' ? detail : UNWRITTEN_DETAIL
     }
   } catch {
     // A body that is not JSON tells us nothing more than the status line does.

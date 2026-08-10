@@ -50,6 +50,10 @@ interface DetailProps {
 function ExceptionDetail({ record }: DetailProps) {
   const [resolution, setResolution] = useState('')
   const resolve = useResolveException()
+  const resolved =
+    record.resolution === null || record.resolution === undefined || record.resolution === ''
+      ? null
+      : record.resolution
 
   return (
     <div className="bg-slate-50 p-4">
@@ -81,8 +85,6 @@ function ExceptionDetail({ record }: DetailProps) {
           <dl className="mt-2 grid grid-cols-2 gap-y-1 text-sm">
             <dt className="text-slate-500">Entry</dt>
             <dd className="font-mono text-slate-900">{record.ledger_entry_id ?? 'none'}</dd>
-            <dt className="text-slate-500">Match key</dt>
-            <dd className="font-mono text-slate-900">{record.match_key ?? 'none'}</dd>
             <dt className="text-slate-500">Amount</dt>
             <dd className="font-mono text-slate-900">
               {record.ledger_amount_cents === null
@@ -102,6 +104,20 @@ function ExceptionDetail({ record }: DetailProps) {
         <dd className="text-slate-900">{formatTimestamp(record.detected_at)}</dd>
         <dt className="text-slate-500">Run</dt>
         <dd className="font-mono text-slate-900">{record.run_id}</dd>
+        {/* A note the reviewer wrote and then never saw again was a note they
+            had no reason to write carefully. */}
+        {resolved !== null && (
+          <>
+            <dt className="text-slate-500">Resolution</dt>
+            <dd className="break-words text-slate-900">{resolved}</dd>
+            <dt className="text-slate-500">Resolved</dt>
+            <dd className="text-slate-900">
+              {record.resolved_at === null || record.resolved_at === undefined
+                ? 'no time recorded'
+                : formatTimestamp(record.resolved_at)}
+            </dd>
+          </>
+        )}
       </dl>
 
       {record.status === 'open' && (
@@ -128,7 +144,7 @@ function ExceptionDetail({ record }: DetailProps) {
         </div>
       )}
       {resolve.error !== null && (
-        <p role="alert" className="mt-2 text-sm text-red-800">
+        <p role="alert" className="mt-2 break-words text-sm text-red-800">
           {resolve.error.message}
         </p>
       )}
