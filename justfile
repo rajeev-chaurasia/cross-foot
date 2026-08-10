@@ -28,5 +28,10 @@ test-live:
 probe:
     uv run crossfoot probe
 
+# Build the local vision model the published numbers were produced against.
+# Point CROSSFOOT_LLM_MODEL at the name this creates before a live run.
+model:
+    ollama create qwen2.5vl-crossfoot:7b -f ollama/qwen2.5vl-crossfoot.Modelfile
+
 web:
     cd frontend; npm run dev

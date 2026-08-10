@@ -1,0 +1,12 @@
+# The serving configuration the published vision numbers were produced against.
+#
+# Ollama defaults to a 4096 token context, which is not a model limit but a
+# server default. A statement page costs about 2700 prompt tokens, and the
+# longest statements need roughly 2500 more to answer, so generation stopped
+# mid object and the JSON never parsed. Every failed response sat at exactly
+# 4096 total tokens and nothing below it ever failed, which is what identified
+# the window rather than the model as the cause. A wider window costs latency,
+# so the tradeoff is deliberate: a scanned statement takes two to six minutes
+# here instead of one.
+FROM qwen2.5vl:7b
+PARAMETER num_ctx 16384

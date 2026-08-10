@@ -140,6 +140,31 @@ The OpenAPI snapshot cannot be generated until `crossfoot.api` imports. The firs
 after the implementation lands creates it, and maintainer review of that diff is the
 freeze.
 
+## Clarifications (binding, added 2026-08-10 after security audit)
+
+Bounds the first draft left open. Each one was a 500 or an unbounded write before it
+was named here.
+
+- `offset` on both paged routes is capped at 1,000,000,000. SQLite binds an offset as a
+  64 bit integer, so a paged route has to refuse one it cannot bind rather than fail
+  inside the query. Above the cap is a 422; at or below it and past the end stays an
+  empty page carrying the true total.
+- A correction's `value` is at most 256 characters, and `reviewer` is 1 to 128
+  characters after trimming. The corrections table exists to say who changed what, so an
+  attribution that is blank or whitespace is not a correction. Either violation is a 422
+  naming the field.
+- A resolution is at most 1000 characters.
+- Markup inside those strings is stored as written. It reaches no HTML sink, so
+  filtering it would only corrupt a statement value that legitimately contains it.
+- A path segment carrying a null byte is not a traversal, but it cannot be used as a
+  path either, so containment rejects it with 400 before it reaches the filesystem.
+- The 404 for a missing scorecard names no directory. An operator learns the path from
+  the log, not a client.
+- The frontend mount answers an unknown extensionless path outside the API prefix with
+  the app shell, because routing happens in the browser and a refresh on `/metrics` is
+  not an error. A path carrying a suffix and any path under the API prefix keep their
+  404, since answering either with HTML hides the miss.
+
 ## Determinism and honesty rules
 
 - The review queue order is a total order: ascending confidence, then field_id. Two
