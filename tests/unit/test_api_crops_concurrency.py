@@ -24,13 +24,13 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pypdfium2
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
-from pdf_fixtures import TRUTH_DOC, minimal_pdf, statement_items
+from pdf_fixtures import PAGE_HEIGHT, PAGE_WIDTH, TRUTH_DOC, minimal_pdf, statement_items
 
 from crossfoot import pdfium
 from crossfoot.api import create_app
@@ -337,7 +337,20 @@ def test_a_document_that_cannot_be_opened_leaves_the_lock_free(client: TestClien
 class _ExplodingPage:
     """A page that fails to rasterize, the way a real one did on the sixth worker."""
 
+    # Every render attempt this stub was actually asked for, so a test can tell
+    # its own failure from one raised before the render was reached.
+    attempts: ClassVar[list[str]] = []
+
+    def get_size(self) -> tuple[int, int]:
+        """The page budget is read off this before the render, so a stub needs it.
+
+        Without it the exception leaving the handler is an AttributeError from
+        the size check and `render` below is never called at all.
+        """
+        return PAGE_WIDTH, PAGE_HEIGHT
+
     def render(self, *args: Any, **kwargs: Any) -> Any:
+        _ExplodingPage.attempts.append(RENDER_FAILURE_DETAIL)
         raise RuntimeError(RENDER_FAILURE_DETAIL)
 
 
@@ -369,9 +382,13 @@ def test_an_exception_inside_the_render_leaves_the_lock_free(
     document. What would end the demo is the next request blocking forever on a
     lock the failed one never gave back, so that is what is checked after it.
     """
+    _ExplodingPage.attempts.clear()
     monkeypatch.setattr(pypdfium2, "PdfDocument", _ExplodingDocument)
     failed = client.get(_url(_doc_id(0), _field_id(0, 0)))
     assert failed.status_code == 500
+    # The 500 came from the render and not from the stub being the wrong shape,
+    # which would be a 500 as well and would leave this list empty.
+    assert _ExplodingPage.attempts == [RENDER_FAILURE_DETAIL]
 
     monkeypatch.undo()
     assert not pdfium._PDFIUM_LOCK.locked()

@@ -73,13 +73,17 @@ def test_openapi_schema_is_the_frozen_frontend_contract(
     assert schema == snapshot
 
 
-def test_every_documented_route_exists_with_its_documented_method(empty_app: Any) -> None:
-    assert schema_routes(empty_app) >= DOCUMENTED_ROUTES
-
-
-def test_no_undocumented_route_has_appeared(empty_app: Any) -> None:
+def test_the_published_routes_are_exactly_the_documented_ones(empty_app: Any) -> None:
+    # Equality in both directions at once: a documented route that disappeared
+    # and an undocumented one that appeared are both failures here, and the set
+    # difference in the report says which happened.
     assert schema_routes(empty_app) == DOCUMENTED_ROUTES
 
 
 def test_every_published_path_lives_under_the_api_prefix(empty_app: Any) -> None:
-    assert all(path.startswith("/api/") for _, path in schema_routes(empty_app))
+    routes = schema_routes(empty_app)
+    # A schema publishing no paths at all satisfies the all() below, so the
+    # non emptiness this rests on is asserted here rather than borrowed from
+    # another test.
+    assert routes
+    assert all(path.startswith("/api/") for _, path in routes)

@@ -369,22 +369,17 @@ def test_review_queue_depth_is_the_needs_review_count(client: TestClient) -> Non
 def test_auto_accept_rate_and_queue_depth_agree_with_the_seeded_statuses(
     client: TestClient, db_path: Path
 ) -> None:
+    # Every assertion compares a published figure against the rows behind it.
+    # Asserting the table holds what the seed put there would be a test of
+    # sqlite, and the arithmetic between two published figures is a test of
+    # arithmetic, so neither is here.
     counts = status_counts(db_path)
-    assert counts == {
-        ReviewStatus.AUTO_ACCEPTED.value: 7,
-        ReviewStatus.NEEDS_REVIEW.value: 2,
-        ReviewStatus.HUMAN_ACCEPTED.value: 1,
-    }
     payload = summary(client)
     assert payload["fields_extracted"] == sum(counts.values())
     assert payload["auto_accept_rate"] == pytest.approx(
         counts[ReviewStatus.AUTO_ACCEPTED.value] / sum(counts.values())
     )
     assert payload["review_queue_depth"] == counts[ReviewStatus.NEEDS_REVIEW.value]
-    # 0.7 * 10 auto accepted plus 2 still queued is 9, the one field left over
-    # being the one a human already accepted.
-    auto_accepted = payload["auto_accept_rate"] * payload["fields_extracted"]
-    assert auto_accepted + payload["review_queue_depth"] == pytest.approx(9)
 
 
 def test_review_queue_share_is_the_depth_over_every_extracted_field(client: TestClient) -> None:
@@ -437,9 +432,15 @@ def test_a_free_tier_run_still_reports_a_nonzero_cost_per_document(
     with connection(db_path) as conn:
         (actual,) = conn.execute("SELECT SUM(actual_cost_microusd) FROM llm_calls").fetchone()
         (listed,) = conn.execute("SELECT SUM(list_price_microusd) FROM llm_calls").fetchone()
-    assert actual == 0  # every seeded call was served by a free tier
-    assert listed == 90_000
-    assert summary(client)["cost_per_document_microusd"] == 45_000
+    # The premise of the test rather than a claim about it: every seeded call was
+    # served by a free tier, so a summary reading the actual column publishes
+    # zero and fails the assertion below.
+    assert actual == 0
+    payload = summary(client)
+    assert payload["cost_per_document_microusd"] == pytest.approx(
+        listed / payload["documents_processed"]
+    )
+    assert payload["cost_per_document_microusd"] > 0
 
 
 # The published metrics.

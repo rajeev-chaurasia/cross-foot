@@ -19,15 +19,18 @@ import pytest
 
 from crossfoot.config import ProviderProfile
 from crossfoot.constants import CHAT_COMPLETIONS_PATH, PROVIDER_BASE_URLS, LlmMode, Provider
+from crossfoot.llm import client as client_module
 from crossfoot.llm.client import ChatResult, LlmError
-
-client_module = pytest.importorskip("crossfoot.llm.client")
 
 PHASE2_PARAMS = frozenset({"mode", "cassette_dir", "ledger", "transport"})
 if not set(inspect.signature(client_module.LlmClient).parameters) >= PHASE2_PARAMS:
     pytest.skip("phase 2 LlmClient interface has not landed yet", allow_module_level=True)
 
 MODEL = "gemini-3.5-flash"
+# What the provider answers with. Deliberately not the profile's model: a
+# provider may serve a dated build of what was asked for, and the result has to
+# carry what answered rather than what was requested.
+SERVED_MODEL = "gemini-3.5-flash-preview-09-2026"
 API_KEY = "not-a-real-key"
 PROMPT = "read this statement"
 MESSAGES: list[dict[str, Any]] = [{"role": "user", "content": PROMPT}]
@@ -78,9 +81,10 @@ def ok_response(
     content: str = "ok",
     usage: dict[str, int] | None = None,
     headers: dict[str, str] | None = None,
+    model: str = MODEL,
 ) -> httpx.Response:
     body: dict[str, Any] = {
-        "model": MODEL,
+        "model": model,
         "choices": [{"message": {"role": "assistant", "content": content}}],
     }
     if usage is not None:
@@ -235,11 +239,21 @@ async def test_missing_usage_block_reports_zeros() -> None:
     assert result.usage.total_tokens == 0
 
 
-async def test_result_carries_content_and_model() -> None:
-    fake = FakeApi(always(lambda: ok_response(content="extracted")))
+async def test_result_carries_content_and_the_model_that_answered() -> None:
+    # The response names a different model than the profile asked for, so
+    # falling back to the profile cannot pass for reading the response.
+    fake = FakeApi(always(lambda: ok_response(content="extracted", model=SERVED_MODEL)))
     result = await build_client(fake).chat(MESSAGES)
     assert isinstance(result, ChatResult)
     assert result.content == "extracted"
+    assert result.model == SERVED_MODEL
+
+
+async def test_a_response_without_a_model_falls_back_to_the_profile() -> None:
+    body: dict[str, Any] = {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+    fake = FakeApi(always(lambda: httpx.Response(httpx.codes.OK, json=body)))
+    result = await build_client(fake).chat(MESSAGES)
+    assert isinstance(result, ChatResult)
     assert result.model == MODEL
 
 

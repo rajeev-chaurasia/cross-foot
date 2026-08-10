@@ -87,12 +87,19 @@ def test_a_provider_without_structured_output_is_dropped_when_it_is_required(
     assert len(pool) < len(configured)
 
 
-def test_the_unfiltered_pool_still_means_every_configured_profile(
+def test_the_unfiltered_pool_still_carries_the_text_only_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Text only providers stay available for text only work.
+    # Text only providers stay available for text only work. Comparing the two
+    # calls to each other would pass even if both dropped the same provider, so
+    # the provider that a vision filter would remove is named here.
     settings = _every_key(monkeypatch)
-    assert settings.profile_pool() == settings.configured_profiles()
+    text_only = _lacking(Capability.VISION)
+
+    pool = [profile.name for profile in settings.profile_pool()]
+
+    assert text_only in pool
+    assert pool == [profile.name for profile in settings.configured_profiles()]
 
 
 def test_an_empty_filtered_pool_names_the_missing_capability(

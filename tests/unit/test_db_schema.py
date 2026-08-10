@@ -40,7 +40,11 @@ def test_an_older_database_gains_the_columns_resolving_needs(tmp_path: Path) -> 
         connection.execute(OLDER_EXCEPTIONS_DDL)
         assert "resolution" not in columns(connection, "exceptions")
         ensure_schema(connection)
-        assert {column for _, column, _ in ADDED_COLUMNS} <= columns(connection, "exceptions")
+        # Each entry names its own table: an entry added for another table has to
+        # be checked against that table, not against exceptions.
+        assert ADDED_COLUMNS
+        for table, column, _declaration in ADDED_COLUMNS:
+            assert column in columns(connection, table), f"{table}.{column}"
     finally:
         connection.close()
 

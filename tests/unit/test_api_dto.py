@@ -76,7 +76,10 @@ def test_a_reference_or_text_value_is_kept_verbatim_apart_from_padding(
 
 
 def test_a_value_at_the_limit_is_accepted() -> None:
-    assert len(correction("9" * MAX_CORRECTION_VALUE_LENGTH).value) == MAX_CORRECTION_VALUE_LENGTH
+    # The bound is inclusive, so constructing this is the assertion: a model
+    # that refused the length raises ValidationError here instead.
+    at_limit = "9" * MAX_CORRECTION_VALUE_LENGTH
+    assert correction(at_limit).value == at_limit
 
 
 def test_a_value_past_the_limit_is_rejected() -> None:
@@ -101,8 +104,8 @@ def test_a_reviewer_is_stored_without_its_padding() -> None:
 
 
 def test_a_resolution_at_the_limit_is_accepted() -> None:
-    resolution = ResolutionRequest(resolution="c" * MAX_RESOLUTION_LENGTH)
-    assert len(resolution.resolution) == MAX_RESOLUTION_LENGTH
+    at_limit = "c" * MAX_RESOLUTION_LENGTH
+    assert ResolutionRequest(resolution=at_limit).resolution == at_limit
 
 
 def test_a_resolution_past_the_limit_is_rejected() -> None:

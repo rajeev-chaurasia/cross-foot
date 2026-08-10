@@ -36,8 +36,18 @@ def test_doc_ids_are_deterministic_slugs(book: LedgerBook) -> None:
         assert doc.doc_id == f"doc-{doc.doc_type}-{doc.dealer_id}-{yyyymm}-01"
 
 
+def test_every_statement_carries_lines(book: LedgerBook) -> None:
+    # A statement with no lines would satisfy every per-line loop in this file
+    # vacuously, so the premise those loops rest on is asserted once, here.
+    docs = compose_statements(book, MASTER_SEED)
+    assert docs
+    for doc in docs:
+        assert doc.lines, doc.doc_id
+
+
 def test_lines_ordered_by_post_date_and_renumbered(book: LedgerBook) -> None:
     for doc in compose_statements(book, MASTER_SEED):
+        assert doc.lines, doc.doc_id
         assert [line.line_no for line in doc.lines] == list(range(1, len(doc.lines) + 1))
         dates = [line.line_date for line in doc.lines]
         assert dates == sorted(dates)
@@ -47,6 +57,7 @@ def test_every_line_carries_matching_ledger_provenance(book: LedgerBook) -> None
     entries = {entry.entry_id: entry for entry in book.entries}
     for doc in compose_statements(book, MASTER_SEED):
         schedule = DOC_TYPE_SCHEDULES[doc.doc_type]
+        assert doc.lines, doc.doc_id
         for line in doc.lines:
             assert line.source_entry_id is not None
             entry = entries[line.source_entry_id]
@@ -79,15 +90,21 @@ def test_previous_balance_only_on_balance_forward_types(book: LedgerBook) -> Non
 
 
 def test_adjustments_usually_zero_occasionally_not(book: LedgerBook) -> None:
+    # Both halves: a rounding line or a manual credit is rare on a real
+    # statement, and a generator that never prints one is not modelling one.
     docs = compose_statements(book, MASTER_SEED)
     zero = sum(1 for doc in docs if doc.adjustments_cents == 0)
     assert zero > len(docs) // 2
+    assert zero < len(docs)
+    assert any(doc.adjustments_cents < 0 for doc in docs)
+    assert any(doc.adjustments_cents > 0 for doc in docs)
 
 
 def test_period_covers_line_dates(book: LedgerBook) -> None:
     for doc in compose_statements(book, MASTER_SEED):
         assert doc.statement_date == doc.period_end
         assert doc.period_start.day == 1
+        assert doc.lines, doc.doc_id
         for line in doc.lines:
             assert doc.period_start <= line.line_date <= doc.period_end
 

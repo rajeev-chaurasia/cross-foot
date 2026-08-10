@@ -15,6 +15,7 @@ from crossfoot.constants import (
     ReviewStatus,
 )
 from crossfoot.extraction.tabular import (
+    MAX_CELL_CHARS,
     MAX_DATA_ROWS,
     MAX_FILE_BYTES,
     extract_csv,
@@ -101,6 +102,10 @@ def test_one_giant_cell_is_a_typed_error_not_an_exception(tmp_path: Path) -> Non
     doc = extract_csv(path, DOC_ID)
     assert doc.route is ExtractionRoute.UNPROCESSABLE
     assert doc.error is not None
+    assert doc.error.kind is IngestErrorKind.UNRECOGNIZED
+    # The detail names the configured cell limit, which is what separates the
+    # guard firing from the csv module tripping over its own 128k default.
+    assert str(MAX_CELL_CHARS) in doc.error.detail
 
 
 # S3: one bad cell must not void the document.

@@ -349,9 +349,3 @@ def insert_llm_call(
             list_price_microusd,
         ),
     )
-
-
-def rows(db_path: Path, sql: str, params: tuple[object, ...] = ()) -> list[sqlite3.Row]:
-    """Read straight from the database, bypassing the API under test."""
-    with connection(db_path) as conn:
-        return list(conn.execute(sql, params).fetchall())

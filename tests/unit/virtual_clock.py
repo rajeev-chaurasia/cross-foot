@@ -38,10 +38,12 @@ class VirtualClock:
         return self._now
 
     async def sleep(self, seconds: float) -> None:
+        # Recorded before the zero length case returns, so an empty sleeps list
+        # means nothing asked to wait rather than nothing waited measurably.
+        self.sleeps.append(seconds)
         if seconds <= 0.0:
             await asyncio.sleep(0)
             return
-        self.sleeps.append(seconds)
         waiter: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         heapq.heappush(self._waiters, (self._now + seconds, next(self._sequence), waiter))
         await waiter

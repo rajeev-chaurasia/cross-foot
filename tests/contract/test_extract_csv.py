@@ -1,6 +1,7 @@
 """Contract tests for crossfoot.extraction.tabular.extract_csv.
 
-Written against docs/contracts-phase1.md before the implementation exists.
+Written against docs/contracts-phase1.md. The extractor is imported directly: a
+broken import has to be a red build, not a file that quietly skips itself.
 Fixtures live in tests/fixtures/csv/ and are committed byte-exact: one clean
 utf-8 file, one pipe-delimited cp1252 file with synonym headers, one file of
 hostile amount formats, one with junk preamble rows, and one binary junk file
@@ -10,12 +11,9 @@ saved with a .csv extension.
 from datetime import date
 from pathlib import Path
 
-import pytest
-
 from crossfoot.constants import ExtractionRoute, FieldName, ReviewStatus
+from crossfoot.extraction import tabular
 from crossfoot.models.extraction import ExtractedDocument, ExtractedField, IngestError
-
-tabular = pytest.importorskip("crossfoot.extraction.tabular")
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "csv"
 DOC_ID = "doc-test-01"

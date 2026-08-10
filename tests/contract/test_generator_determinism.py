@@ -1,5 +1,15 @@
-"""Determinism contracts: same seed means same bytes, different seed means different data."""
+"""Determinism contracts: same seed means same bytes, different seed means different data.
 
+Scope, stated because the obvious reading of the name is wrong. The full profile does not
+reproduce byte for byte: its 17 `scan_heavy` renders differ on every run, because one
+Augraphy augmentation in that profile draws from a global random source neither seed
+reaches. That is a known defect, recorded under Limitations in the README. The small
+profile carries no `scan_heavy` document, so what is pinned here is every other tier,
+including the `scan_light` renders that go through Augraphy as well. If non determinism
+ever spreads beyond the heavy tier, this is what catches it.
+"""
+
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -8,7 +18,15 @@ from crossfoot.models.ledger import LedgerBook
 from crossfoot.models.manifest import DatasetManifest
 
 
-def test_same_seed_produces_byte_identical_artifacts(tmp_path: Path) -> None:
+def _digests(root: Path) -> dict[Path, str]:
+    return {
+        path.relative_to(root): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_same_seed_reproduces_every_file_the_small_profile_writes(tmp_path: Path) -> None:
     dataset = pytest.importorskip("crossfoot.generator.dataset")
     first = tmp_path / "first"
     second = tmp_path / "second"
@@ -16,8 +34,12 @@ def test_same_seed_produces_byte_identical_artifacts(tmp_path: Path) -> None:
     second.mkdir()
     dataset.generate_dataset(master_seed=42, out_dir=first, profile=dataset.DatasetProfile.SMALL)
     dataset.generate_dataset(master_seed=42, out_dir=second, profile=dataset.DatasetProfile.SMALL)
+
     assert (first / "manifest.json").read_bytes() == (second / "manifest.json").read_bytes()
     assert (first / "ledger.json").read_bytes() == (second / "ledger.json").read_bytes()
+    # Rendered artifacts too, not only the records read off them, so a renderer that
+    # starts drawing from an unseeded source fails here rather than in a scorecard.
+    assert _digests(first) == _digests(second)
 
 
 def test_generate_ledger_is_deterministic() -> None:

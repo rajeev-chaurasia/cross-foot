@@ -107,17 +107,35 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 # Planted outside the crop root, named so a naive join really would serve it.
 SECRET_BYTES = PNG_MAGIC + b"CROSSFOOT-UNIT-SECRET-DO-NOT-SERVE"
 
-HOSTILE_URLS = (
+# The handler's own refusal, and the router's when no route matched at all.
+ESCAPING_SEGMENT_STATUS = 400
+NO_SUCH_ROUTE_STATUS = 404
+
+# Kept in the two families the security file separates, because they leave by
+# different doors and the door is part of the claim: a segment that survives as
+# one path segment reaches the handler and is refused there.
+ROUTABLE_ESCAPES = (
     "/api/crops/%2E%2E/secret.png",
     "/api/crops/..%5Coutside/secret.png",
     "/api/crops/doc-a/..%5C..%5Coutside%5Csecret.png",
     "/api/crops/C%3A/secret.png",
     "/api/crops/%5C%5C.%5CC%3A/secret.png",
     "/api/crops/%5Cetc%5Cpasswd/secret.png",
+)
+# These decode into extra path segments before the router sees them, so they
+# match no route and never reach the handler at all.
+ENCODED_SEPARATOR_ESCAPES = (
     "/api/crops/%2E%2E%2F%2E%2E%2Foutside/secret.png",
     "/api/crops/%2F%2F.%2FC%3A/secret.png",
     "/api/crops/%2Fetc%2Fpasswd/secret.png",
     "/api/crops/doc-a/%2E%2E%2F%2E%2E%2Foutside%2Fsecret.png",
+)
+HOSTILE_URLS = (*ROUTABLE_ESCAPES, *ENCODED_SEPARATOR_ESCAPES)
+# The code each family is documented to leave by, paired with the url so a
+# refusal that moved between doors is a failure rather than an accepted variant.
+HOSTILE_REQUESTS = (
+    *((url, ESCAPING_SEGMENT_STATUS) for url in ROUTABLE_ESCAPES),
+    *((url, NO_SUCH_ROUTE_STATUS) for url in ENCODED_SEPARATOR_ESCAPES),
 )
 
 _INSERT_DOCUMENT = """
@@ -150,6 +168,7 @@ INSERT INTO fields (
 # The render's own record, which is a different table from the extractor's
 # fields.crop_kind and is absent entirely until a crop has been cut.
 _CROP_KIND = "SELECT crop_kind FROM rendered_crops WHERE field_id = :field_id"
+_CROP_RECORDS = "SELECT COUNT(*) AS recorded FROM rendered_crops"
 
 
 def vision_items() -> list[tuple[float, float, int, str]]:
@@ -386,6 +405,13 @@ def _recorded_kind(db_path: Path, field_id: str) -> str | None:
     return None if row is None else str(row["crop_kind"])
 
 
+def _crop_records(db_path: Path) -> int:
+    """How many renders have recorded a kind, over every field in the database."""
+    with closing(connect(db_path)) as connection:
+        row = connection.execute(_CROP_RECORDS).fetchone()
+    return int(row["recorded"])
+
+
 def _capped(pixels: tuple[int, int]) -> tuple[int, int]:
     """The size the route serves for a crop of these dimensions, after the cap."""
     width, height = pixels
@@ -447,9 +473,12 @@ def test_an_exact_bbox_field_renders_a_crop_smaller_than_its_page(client: TestCl
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/png")
     width, height = _pixels(response.content)
-    page_width, page_height = PAGE_PIXELS
-    # Strictly smaller on both axes, which is the proof it cropped rather than
-    # quietly handing back the page and calling it a crop.
+    # Against the size the page itself is served at, not the uncapped raster:
+    # every response is bounded by MAX_SERVED_EDGE_PX, so a comparison with the
+    # raster is true of the whole page too and proves nothing. Strictly smaller
+    # on both axes here is the proof it cropped rather than quietly handing back
+    # the page and calling it a crop.
+    page_width, page_height = _capped(PAGE_PIXELS)
     assert width < page_width
     assert height < page_height
 
@@ -723,9 +752,9 @@ def test_a_crop_cached_without_a_record_is_cut_again_before_it_is_captioned(
 # Containment, restated against the renderer.
 
 
-@pytest.mark.parametrize("url", HOSTILE_URLS)
+@pytest.mark.parametrize(("url", "expected_status"), HOSTILE_REQUESTS)
 def test_a_hostile_segment_never_renders_and_never_leaks(
-    client: TestClient, url: str, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, url: str, expected_status: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     renders: list[object] = []
 
@@ -734,8 +763,7 @@ def test_a_hostile_segment_never_renders_and_never_leaks(
 
     monkeypatch.setattr(crop_cache, "render_crop_file", _spy)
     response = client.get(url)
-    # 400 from the handler, or 404 when encoded separators kept it off the route.
-    assert response.status_code in {400, 404}
+    assert response.status_code == expected_status
     assert SECRET_BYTES not in response.content
     assert renders == []
 
@@ -751,15 +779,15 @@ def test_no_hostile_request_wrote_anything_into_the_crop_root(
 
 def test_no_hostile_request_recorded_a_crop_kind(client: TestClient, tmp_path: Path) -> None:
     # Containment runs before the render, and the render is what records a kind,
-    # so a rejected request must leave every field with no caption at all rather
-    # than one it never earned.
+    # so a rejected request must leave the table empty. Counted over the whole
+    # table rather than over named fields, because a hostile pair that got
+    # through would record the field id it invented and no named field would
+    # show it.
     db_path = tmp_path / "crossfoot.db"
-    fields = (
-        EXACT_FIELD,
-        FULL_PAGE_FIELD,
-        _vision_field(VISION_DOC, BAND_ROW, FieldName.LINE_AMOUNT),
-    )
-    assert all(_recorded_kind(db_path, field_id) is None for field_id in fields)
     for url in HOSTILE_URLS:
         client.get(url)
-    assert all(_recorded_kind(db_path, field_id) is None for field_id in fields)
+    assert _crop_records(db_path) == 0
+    # The count is live: one ordinary request moves it. Without this, a query
+    # that answered zero for every database would pass the assertion above.
+    assert client.get(_url(DOC, EXACT_FIELD)).status_code == 200
+    assert _crop_records(db_path) == 1

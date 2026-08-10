@@ -17,13 +17,13 @@ from typing import Any
 import httpx
 import pytest
 
+from crossfoot import costs
 from crossfoot.config import ProviderProfile
 from crossfoot.constants import PROVIDER_BASE_URLS, PROVIDER_DEFAULT_MODELS, Provider
 from crossfoot.llm.client import ChatResult, LlmError
 
 spillover = pytest.importorskip("crossfoot.llm.spillover")
 ratelimit = pytest.importorskip("crossfoot.llm.ratelimit")
-costs = pytest.importorskip("crossfoot.costs")
 
 RUN_ID = "run-0001"
 DOC_ID = "doc-01"
@@ -181,6 +181,22 @@ async def test_5xx_spills_over_after_retries_are_exhausted(tmp_path: Path) -> No
     assert result.content == "from groq"
     assert fake.calls(Provider.GEMINI) == 3
     assert fake.calls(Provider.GROQ) == 1
+
+
+@pytest.mark.parametrize("max_attempts", [1, 2, 4])
+async def test_the_configured_attempt_ceiling_bounds_the_retry_loop(
+    tmp_path: Path, max_attempts: int
+) -> None:
+    # The ceiling belongs to the policy but is enforced by this loop, and every
+    # other test here configures the module default, so only varying it shows
+    # the configured number is read at all.
+    fake = FakeApi({Provider.GEMINI: fails(503), Provider.GROQ: serves("from groq")})
+    clock = FakeClock()
+    result = await call(build_pool(fake, ledger(tmp_path), clock, max_attempts=max_attempts))
+    assert result.content == "from groq"
+    assert fake.calls(Provider.GEMINI) == max_attempts
+    # One backoff between attempts, never after the last.
+    assert len(clock.sleeps) == max_attempts - 1
 
 
 async def test_400_does_not_spill_over(tmp_path: Path) -> None:

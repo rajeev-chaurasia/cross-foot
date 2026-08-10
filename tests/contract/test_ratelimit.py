@@ -2,7 +2,8 @@
 
 Written against docs/contracts-phase2.md before the implementation exists. The
 clock is injected, so every wait here is simulated: the tests assert on the
-recorded sleep durations and on wall time staying under a second.
+recorded sleep durations, and a real sleep is made to fail rather than to pass
+slowly.
 
 Frozen shape of a backoff delay: the nominal wait is
 min(base_delay_seconds * 2 ** (attempt - 1), max_delay_seconds), raised to the
@@ -12,7 +13,7 @@ Retry-After value when the provider sent one, and the returned delay lands in
 
 from __future__ import annotations
 
-import time
+import asyncio
 from typing import Any
 
 import pytest
@@ -20,6 +21,15 @@ import pytest
 ratelimit = pytest.importorskip("crossfoot.llm.ratelimit")
 
 SAMPLES = 50
+
+
+def forbid_real_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn a real sleep into a failure, so bypassing the clock cannot pass slowly."""
+
+    async def refuse(seconds: float) -> None:
+        raise AssertionError(f"a real sleep of {seconds}s escaped the injected clock")
+
+    monkeypatch.setattr(asyncio, "sleep", refuse)
 
 
 class FakeClock:
@@ -121,7 +131,11 @@ def test_retry_after_is_waited_out_with_bounded_jitter() -> None:
 
 
 def test_retry_after_wins_over_a_smaller_exponential_delay() -> None:
-    assert delay(attempt=2, retry_after_seconds=30.0) >= 30.0
+    # Nominal at attempt 2 is 2 seconds, so Retry-After sets the floor and the
+    # jitter ceiling rides on it rather than on the exponential value.
+    for _ in range(SAMPLES):
+        value = delay(attempt=2, retry_after_seconds=30.0)
+        assert 30.0 <= value <= 37.5  # 30 * 1.25
 
 
 def test_exponential_backoff_grows_across_attempts() -> None:
@@ -145,21 +159,21 @@ def test_backoff_jitter_varies_between_calls() -> None:
     assert len(values) > 1
 
 
-def test_retry_policy_keeps_its_configured_attempt_ceiling() -> None:
-    assert policy(max_attempts=3).max_attempts == 3
+# The attempt ceiling is a number the retry loop reads, so it is asserted where
+# the loop runs: tests/contract/test_llm_spillover.py.
 
 
 # The injected clock.
 
 
-async def test_the_injected_clock_means_the_test_never_sleeps() -> None:
-    started = time.monotonic()
+async def test_every_wait_goes_to_the_injected_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forbid_real_sleep(monkeypatch)
     clock = FakeClock()
     bucket = limiter(clock, requests_per_minute=2, tokens_per_minute=100_000)
     for _ in range(12):
         await bucket.acquire(tokens=1)
-    elapsed = time.monotonic() - started
-    # The first 2 are free; the other 10 wait 30 seconds each.
-    assert sum(clock.sleeps) == pytest.approx(300.0, abs=0.001)
+    # The first 2 are free; the other 10 wait 30 seconds each, one wait apiece.
+    assert clock.sleeps == [pytest.approx(30.0, abs=0.001)] * 10
     assert clock.now() == pytest.approx(300.0, abs=0.001)
-    assert elapsed < 1.0

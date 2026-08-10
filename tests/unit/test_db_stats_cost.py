@@ -32,6 +32,14 @@ PROMPT_TOKENS = 375_311
 COMPLETION_TOKENS = 125_363
 DOCUMENTS = 2
 
+# qwen2.5vl is priced by equivalence at 100000 microusd per million prompt
+# tokens and 400000 per million completion tokens, so the repriced call is
+#   (375311 * 100000 + 125363 * 400000 + 500000) // 1000000 = 87676
+# Written out rather than read back off the price table: an expectation computed
+# through the same table can only catch a missing reprice, never a wrong rate.
+EXPECTED_LIST_PRICE_MICROUSD = 87_676
+EXPECTED_COST_PER_DOCUMENT_MICROUSD = 43_838  # 87676 // 2 documents
+
 _INSERT_DOCUMENT = """
 INSERT INTO documents (doc_id, file_path, quality_tier, route)
 VALUES (?, ?, ?, ?)
@@ -100,14 +108,21 @@ def db_path(tmp_path: Path) -> Path:
     return tmp_path / DB_NAME
 
 
+def test_the_price_table_still_charges_the_rate_this_file_was_written_against() -> None:
+    # The published cost per document is only as good as the rate behind it, so
+    # the rate is pinned separately from the repricing it feeds.
+    assert (
+        list_price_microusd(
+            SELF_HOSTED_MODEL, prompt_tokens=PROMPT_TOKENS, completion_tokens=COMPLETION_TOKENS
+        )
+        == EXPECTED_LIST_PRICE_MICROUSD
+    )
+
+
 def test_cost_per_document_is_nonzero_when_the_stored_price_is_a_stale_zero(
     db_path: Path, tmp_path: Path
 ) -> None:
     _seed(db_path, model=SELF_HOSTED_MODEL, stored_microusd=0)
-    expected = list_price_microusd(
-        SELF_HOSTED_MODEL, prompt_tokens=PROMPT_TOKENS, completion_tokens=COMPLETION_TOKENS
-    )
-    assert expected > 0
 
     crops = tmp_path / "crops"
     crops.mkdir()
@@ -117,7 +132,7 @@ def test_cost_per_document_is_nonzero_when_the_stored_price_is_a_stale_zero(
     with TestClient(app) as client:
         payload = client.get("/api/stats/summary").json()
 
-    assert payload["cost_per_document_microusd"] == expected // DOCUMENTS
+    assert payload["cost_per_document_microusd"] == EXPECTED_COST_PER_DOCUMENT_MICROUSD
     assert payload["cost_per_document_microusd"] > 0
     # The column itself is untouched: it records what the run believed it spent.
     assert _stored_total(db_path) == 0

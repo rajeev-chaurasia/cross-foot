@@ -190,8 +190,10 @@ def test_a_null_byte_never_returns_the_planted_file(client: TestClient, url: str
 @pytest.mark.parametrize("url", ENCODED_SEPARATOR_ESCAPES)
 def test_encoded_separators_never_reach_a_file(client: TestClient, url: str) -> None:
     response = client.get(url)
-    # Rejected by the router before the handler, which is still never a read.
-    assert response.status_code in {400, 404}
+    # 404 and not the handler's 400: these decode into extra path segments, so
+    # the router matches nothing and the handler is never entered. Accepting
+    # either code would hide a form that started reaching the handler.
+    assert response.status_code == 404
     assert SECRET_BYTES not in response.content
 
 

@@ -1,7 +1,7 @@
 """Contract tests for the matching engine in crossfoot.reconcile.
 
-Written against docs/contracts-phase2.md before the implementation exists, so the
-module-level importorskip keeps collection clean today.
+Written against docs/contracts-phase2.md. The engine is imported directly: a
+broken import has to be a red build, not a file that quietly skips itself.
 
 Phase 2 freezes the behaviour but names no signatures, so these tests pin the
 smallest surface that can express it:
@@ -18,13 +18,13 @@ code over the same shape: ground truth lines in one case, lines assembled from
 extraction in the other.
 
 Every ledger, statement, score, and dollar impact below is worked out by hand in
-the comment tables. Every StatementDoc satisfies the composer invariants because
-_doc derives the subtotal and total from its lines.
+the comment tables. Printed subtotals and totals are hand typed rather than
+summed from the lines, so the fixture hygiene tests at the bottom compare two
+independently written numbers.
 """
 
 from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
-from typing import Any
 
 import pytest
 
@@ -41,8 +41,8 @@ from crossfoot.constants import (
 from crossfoot.models.ledger import Dealer, LedgerBook, LedgerEntry
 from crossfoot.models.reconciliation import ExceptionRecord, MatchedLine
 from crossfoot.models.statement import StatementDoc, StatementLine
-
-engine = pytest.importorskip("crossfoot.reconcile.engine")
+from crossfoot.reconcile import engine
+from crossfoot.reconcile.engine import ReconciliationResult
 
 DEALER = "dlr-meridian"
 OTHER_DEALER = "dlr-kaizen"
@@ -96,12 +96,17 @@ def _doc(
     doc_type: DocType,
     lines: Sequence[StatementLine],
     *,
+    subtotal_cents: int,
+    total_cents: int,
     dealer_id: str = DEALER,
     oem: Oem = Oem.MERIDIAN,
     statement_number: str = "PS-2026-07-001",
 ) -> StatementDoc:
-    """Subtotal and total are derived, so crossfoot_delta_cents() is always zero."""
-    subtotal = sum(line.amount_cents for line in lines)
+    """Printed totals are the caller's own numbers, never a sum over the lines.
+
+    A statement prints what it prints; deriving the totals here would make the
+    fixture hygiene tests restate the helper instead of checking the fixtures.
+    """
     return StatementDoc(
         doc_id=doc_id,
         dealer_id=dealer_id,
@@ -112,9 +117,9 @@ def _doc(
         period_start=PERIOD_START,
         period_end=PERIOD_END,
         previous_balance_cents=None,
-        subtotal_cents=subtotal,
+        subtotal_cents=subtotal_cents,
         adjustments_cents=0,
-        total_cents=subtotal,
+        total_cents=total_cents,
         lines=tuple(lines),
     )
 
@@ -156,12 +161,15 @@ def _book(*entries: LedgerEntry) -> LedgerBook:
 Scenario = tuple[StatementDoc, LedgerBook]
 
 
-def _run(scenario: Scenario, mode: ReconMode = ReconMode.END_TO_END) -> Any:
+def _run(scenario: Scenario, mode: ReconMode = ReconMode.END_TO_END) -> ReconciliationResult:
     doc, book = scenario
     return engine.reconcile(doc, book, mode=mode, run_id=RUN_ID, now=NOW)
 
 
 def _matches(scenario: Scenario, mode: ReconMode = ReconMode.END_TO_END) -> list[MatchedLine]:
+    # Callers legitimately expect no matches, so the per-record checks here are a
+    # convenience. The stamping invariants are asserted over a known non-empty
+    # result in test_every_emitted_record_carries_the_run_stamp below.
     matches = list(_run(scenario, mode).matches)
     for match in matches:
         assert isinstance(match, MatchedLine)
@@ -243,6 +251,8 @@ def scenario_exact_parts() -> Scenario:
             _line(1, invoice_number="M1000001", amount_cents=100_000, line_date=date(2026, 7, 5)),
             _line(2, invoice_number="M1000002", amount_cents=25_000, line_date=date(2026, 7, 12)),
         ],
+        subtotal_cents=125_000,
+        total_cents=125_000,
     )
     book = _book(
         _entry(
@@ -293,6 +303,8 @@ def scenario_warranty_primary_is_claim_number() -> Scenario:
                 line_date=date(2026, 7, 12),
             )
         ],
+        subtotal_cents=60_000,
+        total_cents=60_000,
         statement_number="WCM-4471",
     )
     book = _book(
@@ -321,6 +333,8 @@ def scenario_floorplan_primary_is_vin() -> Scenario:
                 line_date=date(2026, 7, 3),
             )
         ],
+        subtotal_cents=200_000,
+        total_cents=200_000,
         statement_number="FP-2026-07",
     )
     book = _book(
@@ -349,6 +363,8 @@ def scenario_incentive_primary_is_program_code_and_vin() -> Scenario:
                 line_date=date(2026, 7, 9),
             )
         ],
+        subtotal_cents=30_000,
+        total_cents=30_000,
         statement_number="INC-2026-07",
     )
     book = _book(
@@ -399,6 +415,8 @@ def scenario_secondary_reference_is_not_enough() -> Scenario:
                 line_date=date(2026, 7, 12),
             )
         ],
+        subtotal_cents=60_000,
+        total_cents=60_000,
         statement_number="WCM-4472",
     )
     book = _book(
@@ -444,6 +462,8 @@ def scenario_warranty_short_pay() -> Scenario:
         "doc-warranty_credit_memo-dlr-meridian-202607-03",
         DocType.WARRANTY_CREDIT_MEMO,
         [_line(1, claim_number="4821A00551", amount_cents=55_000, line_date=date(2026, 7, 12))],
+        subtotal_cents=55_000,
+        total_cents=55_000,
         statement_number="WCM-4473",
     )
     book = _book(
@@ -471,6 +491,8 @@ def scenario_incentive_short_pay() -> Scenario:
                 line_date=date(2026, 7, 9),
             )
         ],
+        subtotal_cents=28_000,
+        total_cents=28_000,
         statement_number="INC-2026-08",
     )
     book = _book(
@@ -491,6 +513,8 @@ def scenario_parts_lower_amount() -> Scenario:
         "doc-parts_statement-dlr-meridian-202607-02",
         DocType.PARTS_STATEMENT,
         [_line(1, invoice_number="M1000001", amount_cents=95_000, line_date=date(2026, 7, 5))],
+        subtotal_cents=95_000,
+        total_cents=95_000,
     )
     book = _book(
         _entry(
@@ -508,6 +532,8 @@ def scenario_floorplan_lower_amount() -> Scenario:
         "doc-floorplan_statement-dlr-meridian-202607-02",
         DocType.FLOORPLAN_STATEMENT,
         [_line(1, vin=VIN_A, amount_cents=190_000, line_date=date(2026, 7, 3))],
+        subtotal_cents=190_000,
+        total_cents=190_000,
         statement_number="FP-2026-08",
     )
     book = _book(
@@ -527,6 +553,8 @@ def scenario_warranty_over_amount() -> Scenario:
         "doc-warranty_credit_memo-dlr-meridian-202607-04",
         DocType.WARRANTY_CREDIT_MEMO,
         [_line(1, claim_number="4821A00551", amount_cents=65_000, line_date=date(2026, 7, 12))],
+        subtotal_cents=65_000,
+        total_cents=65_000,
         statement_number="WCM-4474",
     )
     book = _book(
@@ -587,6 +615,8 @@ def scenario_reference_distance_one() -> Scenario:
         "doc-parts_statement-dlr-meridian-202607-03",
         DocType.PARTS_STATEMENT,
         [_line(1, invoice_number="M1234568", amount_cents=100_000, line_date=date(2026, 7, 19))],
+        subtotal_cents=100_000,
+        total_cents=100_000,
     )
     book = _book(
         _entry(
@@ -613,6 +643,8 @@ def scenario_reference_distance_two() -> Scenario:
         "doc-parts_statement-dlr-meridian-202607-04",
         DocType.PARTS_STATEMENT,
         [_line(1, invoice_number="M1234588", amount_cents=100_000, line_date=date(2026, 7, 10))],
+        subtotal_cents=100_000,
+        total_cents=100_000,
     )
     book = _book(
         _entry(
@@ -643,6 +675,8 @@ def scenario_vin_last_eight() -> Scenario:
         "doc-floorplan_statement-dlr-meridian-202607-03",
         DocType.FLOORPLAN_STATEMENT,
         [_line(1, vin=VIN_A_GARBLED, amount_cents=199_000, line_date=date(2026, 7, 16))],
+        subtotal_cents=199_000,
+        total_cents=199_000,
         statement_number="FP-2026-09",
     )
     book = _book(
@@ -663,9 +697,11 @@ def test_vin_last_eight_match_clears_the_threshold() -> None:
     assert len(matches) == 1
     assert matches[0].ledger_entry_id == "led-floorplan_liability-00010"
     assert matches[0].score == pytest.approx(0.775)
-    types = {exception.exception_type for exception in _exceptions(scenario)}
-    assert ExceptionType.MISSING_FROM_LEDGER not in types
-    assert ExceptionType.MISSING_FROM_STATEMENT not in types
+    # A matched pair whose amounts disagree owes an amount mismatch, so naming
+    # the expected exception is what proves the two absences are absences.
+    assert _summary(_exceptions(scenario)) == {
+        (ExceptionType.AMOUNT_MISMATCH, 1, "led-floorplan_liability-00010", -1_000, 0),
+    }
 
 
 def scenario_just_over_the_threshold() -> Scenario:
@@ -675,6 +711,8 @@ def scenario_just_over_the_threshold() -> Scenario:
         "doc-parts_statement-dlr-meridian-202607-05",
         DocType.PARTS_STATEMENT,
         [_line(1, invoice_number="M2000002", amount_cents=100_500, line_date=date(2026, 7, 16))],
+        subtotal_cents=100_500,
+        total_cents=100_500,
     )
     book = _book(
         _entry(
@@ -701,6 +739,8 @@ def scenario_just_under_the_threshold() -> Scenario:
         "doc-parts_statement-dlr-meridian-202607-06",
         DocType.PARTS_STATEMENT,
         [_line(1, invoice_number="M3000002", amount_cents=500_000, line_date=date(2026, 7, 16))],
+        subtotal_cents=500_000,
+        total_cents=500_000,
     )
     book = _book(
         _entry(
@@ -748,6 +788,8 @@ def scenario_duplicate_line() -> Scenario:
                 description="Brake pads",
             ),
         ],
+        subtotal_cents=200_000,
+        total_cents=200_000,
     )
     book = _book(
         _entry(
@@ -783,6 +825,8 @@ def scenario_two_lines_one_entry() -> Scenario:
             _line(1, invoice_number="M5000001", amount_cents=100_000, line_date=date(2026, 7, 10)),
             _line(2, invoice_number="M5000001", amount_cents=70_000, line_date=date(2026, 7, 10)),
         ],
+        subtotal_cents=170_000,
+        total_cents=170_000,
     )
     book = _book(
         _entry(
@@ -820,6 +864,8 @@ def scenario_timing_difference() -> Scenario:
         "doc-parts_statement-dlr-meridian-202607-09",
         DocType.PARTS_STATEMENT,
         [_line(1, invoice_number="M6000001", amount_cents=45_000, line_date=date(2026, 7, 28))],
+        subtotal_cents=45_000,
+        total_cents=45_000,
     )
     book = _book(
         _entry(
@@ -855,6 +901,8 @@ def scenario_missing_from_ledger() -> Scenario:
             _line(1, invoice_number="M7000001", amount_cents=100_000, line_date=date(2026, 7, 5)),
             _line(2, invoice_number="M9999999", amount_cents=30_000, line_date=date(2026, 7, 20)),
         ],
+        subtotal_cents=130_000,
+        total_cents=130_000,
     )
     book = _book(
         _entry(
@@ -882,6 +930,8 @@ def scenario_missing_from_statement() -> Scenario:
         "doc-parts_statement-dlr-meridian-202607-11",
         DocType.PARTS_STATEMENT,
         [_line(1, invoice_number="M8000001", amount_cents=100_000, line_date=date(2026, 7, 5))],
+        subtotal_cents=100_000,
+        total_cents=100_000,
     )
     book = _book(
         _entry(
@@ -931,6 +981,9 @@ def test_blocking_excludes_other_dealers_schedules_and_stale_post_dates() -> Non
     ids = {
         exception.ledger_entry_id for exception in _exceptions(scenario_missing_from_statement())
     }
+    # Stated as an equality: three absences against an empty set would be three
+    # absences against an engine that emitted nothing at all.
+    assert ids == {"led-parts_payable-00081"}
     assert "led-parts_payable-00082" not in ids
     assert "led-warranty_receivable-00090" not in ids
     assert "led-parts_payable-00083" not in ids
@@ -1001,6 +1054,8 @@ def scenario_oracle() -> Scenario:
             _line(2, invoice_number="M1000002", amount_cents=30_000, line_date=date(2026, 7, 12)),
             _line(3, invoice_number="M2222222", amount_cents=30_000, line_date=date(2026, 7, 22)),
         ],
+        subtotal_cents=160_000,
+        total_cents=160_000,
     )
     book = _book(
         _entry(
@@ -1045,17 +1100,64 @@ def test_oracle_mode_finds_every_injected_discrepancy_and_nothing_else() -> None
     assert _summary(exceptions) == ORACLE_EXPECTED
 
 
-def test_perfect_extraction_adds_no_extraction_attributable_exceptions() -> None:
-    # End to end over the same lines is the same engine over the same input, so
-    # the gap between the two published numbers is zero when extraction is perfect.
+def scenario_oracle_read_with_a_slip() -> Scenario:
+    # The statement of scenario_oracle as an imperfect extractor returned it:
+    # line 1's invoice number came back with two characters wrong. Two edits is
+    # past MAX_REFERENCE_EDITS, so reference similarity is 0 and the best score
+    # against E1 is 0.5 * 0 + 0.35 * 1.0 + 0.15 * 1.0 = 0.50, under 0.6.
+    # Everything else is byte for byte what the oracle read.
+    doc = _doc(
+        "doc-parts_statement-dlr-meridian-202607-13",
+        DocType.PARTS_STATEMENT,
+        [
+            _line(1, invoice_number="M1008801", amount_cents=100_000, line_date=date(2026, 7, 5)),
+            _line(2, invoice_number="M1000002", amount_cents=30_000, line_date=date(2026, 7, 12)),
+            _line(3, invoice_number="M2222222", amount_cents=30_000, line_date=date(2026, 7, 22)),
+        ],
+        subtotal_cents=160_000,
+        total_cents=160_000,
+    )
+    _truth_doc, book = scenario_oracle()
+    return doc, book
+
+
+#   the misread reference costs the pair E1 was half of, both sides of it:
+#   line 1 has nothing to match         missing_from_ledger    +100000
+#   E1 is never consumed                missing_from_statement -100000
+EXTRACTION_ATTRIBUTABLE: set[tuple[ExceptionType, int | None, str | None, int, int]] = {
+    (ExceptionType.MISSING_FROM_LEDGER, 1, None, 100_000, 0),
+    (ExceptionType.MISSING_FROM_STATEMENT, None, "led-parts_payable-00101", -100_000, 0),
+}
+
+
+def test_a_misread_reference_adds_exceptions_the_oracle_never_sees() -> None:
+    # The published gap between the two modes is an extraction measurement, so
+    # the two sides have to differ by the extraction and by nothing else: the
+    # oracle reads truth, end to end reads what came back off the artifact.
     oracle = _summary(_exceptions(scenario_oracle(), ReconMode.ORACLE))
-    end_to_end = _summary(_exceptions(scenario_oracle(), ReconMode.END_TO_END))
-    assert end_to_end == oracle
+    end_to_end = _summary(_exceptions(scenario_oracle_read_with_a_slip(), ReconMode.END_TO_END))
+    assert oracle == ORACLE_EXPECTED
+    assert end_to_end - oracle == EXTRACTION_ATTRIBUTABLE
+    assert oracle - end_to_end == set()
 
 
 def test_oracle_mode_matches_the_two_lines_that_have_counterparts() -> None:
     matches = _matches(scenario_oracle(), ReconMode.ORACLE)
     assert {match.statement_line_no for match in matches} == {1, 2}
+
+
+def test_every_emitted_record_carries_the_run_stamp() -> None:
+    # A review queue row is worthless without the run it came from and the moment
+    # it was found, so the stamp is checked over a result whose size is pinned.
+    result = _run(scenario_oracle(), ReconMode.ORACLE)
+    assert len(result.exceptions) == 3
+    assert len(result.matches) == 2
+    for exception in result.exceptions:
+        assert isinstance(exception, ExceptionRecord)
+        assert exception.run_id == RUN_ID
+        assert exception.detected_at == NOW
+    for match in result.matches:
+        assert isinstance(match, MatchedLine)
 
 
 # ---------------------------------------------------------------------------
@@ -1084,10 +1186,14 @@ ALL_SCENARIOS: tuple[Callable[[], Scenario], ...] = (
     scenario_missing_from_ledger,
     scenario_missing_from_statement,
     scenario_oracle,
+    scenario_oracle_read_with_a_slip,
 )
 
 
 def test_every_statement_fixture_satisfies_the_composer_invariants() -> None:
+    # The printed totals are hand typed in each builder, so this compares the
+    # fixture's own arithmetic against its lines rather than restating _doc.
+    assert len(ALL_SCENARIOS) == 22
     for builder in ALL_SCENARIOS:
         doc, _book_unused = builder()
         assert doc.subtotal_cents == sum(line.amount_cents for line in doc.lines), doc.doc_id

@@ -191,9 +191,15 @@ def test_crops_render_lazily_and_are_cached(tmp_path: Path) -> None:
     assert first.path == tmp_path / "doc-x" / f"{field.field_id}.png"
     assert first.kind is CropKind.ROW_BAND
 
-    written = first.path.stat().st_mtime_ns
+    # The first render wrote a decodable crop, not an empty file to fill later.
+    assert crops.decode_png(first.path.read_bytes()).size > 0
+
     first.path.write_bytes(b"sentinel")  # a rerun must not re-encode over this
+    written = first.path.stat().st_mtime_ns
     second = crops.render_crop(field, png, row_position=4, expected_rows=ROW_COUNT, root=tmp_path)
+    # Untouched by both of the things a rewrite moves: the timestamp and the bytes.
+    assert second.path.stat().st_mtime_ns == written
     assert second.path.read_bytes() == b"sentinel"
-    assert second.kind is first.kind
-    assert written  # the first render really did write the file
+    # The cached answer still names the region, which is the part of the render
+    # a cache hit could skip computing and get wrong.
+    assert second.kind is CropKind.ROW_BAND

@@ -7,18 +7,15 @@ The scorecard cell carries both denominators: `fields_in_truth` (the phase 1 rul
 and `fields_expected` (the amended rule), so the change is visible rather than
 asserted.
 
-models/scorecard.py does not carry `fields_in_truth` yet, so every
-assertion that depends on the amended denominator is gated on that field landing.
-The cases below where the phase 1 rule and the amended rule agree stay ungated and
-must pass against the current implementation.
+The amendment has landed, so nothing here is gated on it: the cell field it
+introduced is asserted outright, and renaming that field fails the file rather
+than skipping six tests out of it.
 
 Every expected count is worked out by hand in the comment tables.
 """
 
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
-
-import pytest
 
 from crossfoot.constants import (
     FIELD_FAMILIES,
@@ -35,22 +32,12 @@ from crossfoot.constants import (
     ReviewStatus,
     SplitName,
 )
+from crossfoot.evals import metrics
 from crossfoot.models.extraction import ExtractedDocument, ExtractedField, FieldSignals
 from crossfoot.models.manifest import DatasetManifest, InjectedDiscrepancy, ManifestRecord
 from crossfoot.models.reconciliation import ExceptionRecord
 from crossfoot.models.scorecard import FieldAccuracyCell, ReconCell
 from crossfoot.models.statement import StatementDoc, StatementLine
-
-metrics = pytest.importorskip("crossfoot.evals.metrics")
-
-# The amendment lands as one unit: the new per-cell field and the new denominator.
-# Presence of the field is the marker that score_fields now follows the amended rule.
-AMENDED_SCORING = "fields_in_truth" in FieldAccuracyCell.model_fields
-
-requires_amendment = pytest.mark.skipif(
-    not AMENDED_SCORING,
-    reason="scoring amendment pending: FieldAccuracyCell has no fields_in_truth",
-)
 
 DOC_A = "doc-parts_statement-dlr-meridian-202607-01"
 DOC_B = "doc-warranty_credit_memo-dlr-kaizen-202607-01"
@@ -823,7 +810,6 @@ def test_unextracted_train_doc_still_counts_expected_fields() -> None:
     assert cell.correct_raw == 0
 
 
-@requires_amendment
 def test_score_fields_exact_train_counts() -> None:
     cells = metrics.score_fields(
         [EXTRACTED_A, EXTRACTED_B, EXTRACTED_C, EXTRACTED_D], MANIFEST, SplitName.TRAIN
@@ -832,7 +818,6 @@ def test_score_fields_exact_train_counts() -> None:
     _assert_field_cells(cells, EXPECTED_TRAIN_CELLS)
 
 
-@requires_amendment
 def test_test_split_scores_only_the_test_doc() -> None:
     cells = metrics.score_fields(
         [EXTRACTED_A, EXTRACTED_B, EXTRACTED_C, EXTRACTED_D], MANIFEST, SplitName.TEST
@@ -840,7 +825,6 @@ def test_test_split_scores_only_the_test_doc() -> None:
     _assert_field_cells(cells, EXPECTED_TEST_CELLS)
 
 
-@requires_amendment
 def test_csv_document_expects_no_header_fields() -> None:
     # Isolated statement of the amendment: doc A's rendered_values holds no
     # "header:" key, so all five populated header truth fields drop out of the
@@ -856,7 +840,6 @@ def test_csv_document_expects_no_header_fields() -> None:
         assert cells[(family, CSV)].fields_expected == 2, family
 
 
-@requires_amendment
 def test_xlsx_document_expects_only_the_header_fields_it_printed() -> None:
     # Doc D printed statement_number, statement_date, and subtotal. Its total and
     # previous_balance are populated in truth but unprinted, so the amount
@@ -874,7 +857,6 @@ def test_xlsx_document_expects_only_the_header_fields_it_printed() -> None:
     assert cells[(FieldFamily.TEXT, XLSX)].fields_expected == 2
 
 
-@requires_amendment
 def test_document_that_printed_nothing_produces_no_cells() -> None:
     # An artifact that printed nothing has an empty denominator everywhere, and
     # cells are returned only for combos with fields_expected > 0.
@@ -887,15 +869,21 @@ def test_document_that_printed_nothing_produces_no_cells() -> None:
     assert metrics.score_fields([EXTRACTED_A], blank, SplitName.TRAIN) == ()
 
 
+def test_the_cell_carries_both_denominators_by_name() -> None:
+    # Every count below is read out of one of these two fields. Renaming either
+    # one has to fail here rather than quietly unhook the assertions that use it.
+    assert "fields_in_truth" in FieldAccuracyCell.model_fields
+    assert "fields_expected" in FieldAccuracyCell.model_fields
+
+
 def _fields_in_truth(cell: FieldAccuracyCell) -> int:
     # Read through model_dump so the assertion also proves the count is published
-    # in the scorecard JSON, and so this file type checks before the field lands.
+    # in the scorecard JSON and not just held on the model.
     value = cell.model_dump()["fields_in_truth"]
     assert isinstance(value, int)
     return value
 
 
-@requires_amendment
 def test_both_denominators_are_published_and_differ() -> None:
     # The point of carrying two denominators is that a reader can see the amendment
     # move the number. fields_in_truth keeps the phase 1 rule (every populated truth

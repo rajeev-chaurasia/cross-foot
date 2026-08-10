@@ -40,6 +40,8 @@ NEXT_DOC_ID = "doc-parts_statement-dlr-meridian-202607-02"
 FILE_PATH = "files/statement.pdf"
 # The transport never decodes these bytes; they only prove images reach the wire.
 PNG_BYTES = b"\x89PNG\r\n\x1a\n"
+# The same eight bytes in base64, by hand: 89 50 4E 47 0D 0A 1A 0A.
+PAGE_DATA_URI = "data:image/png;base64,iVBORw0KGgo="
 
 CHAIN = (Provider.GEMINI, Provider.GROQ)
 COOLDOWN_SECONDS = 300.0
@@ -172,6 +174,12 @@ def _rows(book: CostLedger, purpose: Purpose) -> list[Any]:
     return [row for row in book.rows(RUN_ID) if row.purpose == purpose]
 
 
+def _image_urls(request: httpx.Request) -> list[str]:
+    """Every image part on the last message of one outbound request, in order."""
+    parts = json.loads(request.content)["messages"][-1]["content"]
+    return [part["image_url"]["url"] for part in parts if part["type"] == "image_url"]
+
+
 # Retryable status table.
 
 
@@ -217,8 +225,10 @@ async def test_a_503_is_retried_and_the_document_still_extracts(tmp_path: Path) 
 async def test_the_retried_vision_call_still_carries_the_page_images(tmp_path: Path) -> None:
     api = ScriptedApi({Provider.GEMINI: (503, OK)})
     await extract(build_extractor(api, ledger(tmp_path), FakeClock()))
-    parts = json.loads(api.requests[1].content)["messages"][-1]["content"]
-    assert any(part["type"] == "image_url" for part in parts)
+    # The page bytes themselves, not merely a part typed image_url: a retry that
+    # dropped or duplicated the image would still carry one of those.
+    assert _image_urls(api.requests[1]) == [PAGE_DATA_URI]
+    assert _image_urls(api.requests[0]) == _image_urls(api.requests[1])
 
 
 async def test_a_dead_primary_spills_over_and_the_document_still_extracts(

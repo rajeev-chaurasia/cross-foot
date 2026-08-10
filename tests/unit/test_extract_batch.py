@@ -63,6 +63,10 @@ def _discard(line: str) -> None:
     """Progress has its own tests; everywhere else it stays out of the way."""
 
 
+def _no_degradations() -> int:
+    return 0
+
+
 def _batch(
     state: RunState,
     extract: Callable[[str], Awaitable[DocumentOutcome]],
@@ -70,6 +74,7 @@ def _batch(
     *,
     concurrency: int = CONCURRENCY,
     report: Callable[[str], None] = _discard,
+    degradations: Callable[[], int] = _no_degradations,
     fatal: tuple[type[Exception], ...] = (),
 ) -> BatchExtractor:
     return BatchExtractor(
@@ -78,6 +83,7 @@ def _batch(
         extract=extract,
         concurrency=concurrency,
         clock=clock,
+        degradations=degradations,
         report=report,
         fatal=fatal,
     )
@@ -279,7 +285,12 @@ async def test_one_progress_line_lands_per_completed_document(tmp_path: Path) ->
         await clock.sleep(DOCUMENT_SECONDS)
         return DocumentOutcome(document=_document(doc_id))
 
-    await clock.run(_batch(state, extract, clock, report=lines.append).run(ids))
+    # A counter that grows with the run, so the reported value cannot be the
+    # default zero: each line is written before it is appended, so line n
+    # reports n whatever order the documents finish in.
+    await clock.run(
+        _batch(state, extract, clock, report=lines.append, degradations=lambda: len(lines)).run(ids)
+    )
 
     assert len(lines) == DOCUMENT_COUNT
     assert {line.split()[1] for line in lines} == set(ids)
@@ -287,7 +298,9 @@ async def test_one_progress_line_lands_per_completed_document(tmp_path: Path) ->
         assert sum(line.startswith(f"[{index}/{DOCUMENT_COUNT}] ") for line in lines) == 1
     assert all(ExtractionRoute.SCANNED_PDF.value in line for line in lines)
     assert all(f"{DOCUMENT_SECONDS:.1f}s" in line for line in lines)
-    assert all("degraded=0" in line for line in lines)
+    assert [line.rpartition("degraded=")[2] for line in lines] == [
+        str(index) for index in range(DOCUMENT_COUNT)
+    ]
 
 
 async def test_progress_goes_to_stderr_so_stdout_stays_parseable(

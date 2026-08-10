@@ -363,6 +363,14 @@ def test_a_downward_amount_change_in_a_payment_context_is_a_short_pay() -> None:
 #   total     0.5 + 0.1233... = 0.6233..., over the 0.6 threshold
 _ORPHAN_VIN = "1MEA57NC3CA6TFK3L"
 _LEDGER_VIN = "1MEJS0X26BYMP70BM"  # different last 8, so only the code can score
+_ORPHAN_SCORE = 0.5 + 0.15 * (1 - 8 / 45)
+
+
+def test_the_orphan_fixture_sits_above_the_fuzzy_threshold() -> None:
+    # The premise of the case below, stated where it can fail on its own: raise
+    # the threshold past this score and the fixture stops exercising the
+    # near-miss path, which should read as this line rather than as a match count.
+    assert _ORPHAN_SCORE > FUZZY_THRESHOLD
 
 
 def test_an_orphan_matching_on_a_near_miss_reference_is_classified_by_amount() -> None:
@@ -391,8 +399,7 @@ def test_an_orphan_matching_on_a_near_miss_reference_is_classified_by_amount() -
     result = _run(doc, book)
     assert len(result.matches) == 1
     assert result.matches[0].match_key.startswith(MatchPass.FUZZY)
-    assert result.matches[0].score == pytest.approx(0.5 + 0.15 * (1 - 8 / 45))
-    assert result.matches[0].score >= FUZZY_THRESHOLD
+    assert result.matches[0].score == pytest.approx(_ORPHAN_SCORE)
     assert len(result.exceptions) == 1
     assert result.exceptions[0].exception_type is ExceptionType.SHORT_PAY
     assert result.exceptions[0].dollar_impact_cents == 28_601

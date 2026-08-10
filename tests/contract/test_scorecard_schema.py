@@ -29,7 +29,11 @@ from crossfoot.models.scorecard import (
 
 
 def build_scorecard() -> Scorecard:
-    """Fully populated scorecard: every optional collection carries data."""
+    """Fully populated scorecard: every field carries a value, defaults included.
+
+    A field left on its default round trips whatever the serializer does with it,
+    so every defaulted field is set to something the default is not.
+    """
     return Scorecard(
         run_id="run-01J00000000000000000000000",
         created_at=datetime(2026, 8, 1, 12, 30, 0, tzinfo=UTC),
@@ -45,16 +49,20 @@ def build_scorecard() -> Scorecard:
             FieldAccuracyCell(
                 field_family=FieldFamily.AMOUNT,
                 quality_tier=QualityTier.CSV,
+                fields_in_truth=45,
                 fields_expected=40,
                 fields_extracted=38,
+                fields_spurious=3,
                 correct_canonical=35,
                 correct_raw=30,
             ),
             FieldAccuracyCell(
                 field_family=FieldFamily.REFERENCE,
                 quality_tier=QualityTier.SCAN_LIGHT,
+                fields_in_truth=25,
                 fields_expected=25,
                 fields_extracted=20,
+                fields_spurious=1,
                 correct_canonical=18,
                 correct_raw=17,
             ),

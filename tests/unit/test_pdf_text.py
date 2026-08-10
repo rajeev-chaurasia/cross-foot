@@ -129,6 +129,11 @@ def test_document_crossfoots(tmp_path: Path) -> None:
 
 def test_every_field_carries_an_exact_crop(tmp_path: Path) -> None:
     doc = _extract(tmp_path)
+    # An extractor that returned nothing would satisfy the loop below, and a
+    # crop is what a reviewer clicks, so the count is pinned before it is walked:
+    # five header labels and four columns over two line rows.
+    assert len(doc.header_fields) == 5
+    assert len(doc.line_fields) == 8
     for field in (*doc.header_fields, *doc.line_fields):
         assert field.crop_kind is CropKind.EXACT_BBOX, field.field_id
         assert field.bbox is not None, field.field_id
