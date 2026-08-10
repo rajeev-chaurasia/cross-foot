@@ -35,10 +35,13 @@
           "description": "A reviewer's replacement value, validated against the field's family.",
           "properties": {
             "reviewer": {
+              "maxLength": 128,
+              "minLength": 1,
               "title": "Reviewer",
               "type": "string"
             },
             "value": {
+              "maxLength": 256,
               "title": "Value",
               "type": "string"
             }
@@ -744,6 +747,7 @@
           "description": "What a reviewer did about an exception, recorded as they close it.",
           "properties": {
             "resolution": {
+              "maxLength": 1000,
               "title": "Resolution",
               "type": "string"
             }
@@ -1435,6 +1439,7 @@
               "required": false,
               "schema": {
                 "default": 0,
+                "maximum": 1000000000,
                 "minimum": 0,
                 "title": "Offset",
                 "type": "integer"
@@ -1779,6 +1784,7 @@
               "required": false,
               "schema": {
                 "default": 0,
+                "maximum": 1000000000,
                 "minimum": 0,
                 "title": "Offset",
                 "type": "integer"

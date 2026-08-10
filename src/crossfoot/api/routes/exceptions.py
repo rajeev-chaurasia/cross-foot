@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from crossfoot.api.deps import Connection
-from crossfoot.api.dto import ExceptionItem, Page, ResolutionRequest
+from crossfoot.api.dto import MAX_PAGE_OFFSET, ExceptionItem, Page, ResolutionRequest
 from crossfoot.constants import ExceptionStatus, ExceptionType
 from crossfoot.db import exceptions
 
@@ -40,7 +40,7 @@ def list_exceptions(
     min_impact_cents: MinImpact = None,
     sort: Sort = exceptions.ExceptionSort.IMPACT,
     limit: Annotated[int, Query(ge=1, le=MAX_EXCEPTION_LIMIT)] = DEFAULT_EXCEPTION_LIMIT,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> Page[ExceptionItem]:
     """One page of exceptions ranked by absolute dollar impact, largest first."""
     rows, total = exceptions.listing(

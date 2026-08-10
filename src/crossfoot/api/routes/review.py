@@ -13,7 +13,13 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from crossfoot.api.deps import Connection
-from crossfoot.api.dto import CorrectionRequest, Page, ReviewItem, ReviewItemDetail
+from crossfoot.api.dto import (
+    MAX_PAGE_OFFSET,
+    CorrectionRequest,
+    Page,
+    ReviewItem,
+    ReviewItemDetail,
+)
 from crossfoot.constants import FieldFamily, QualityTier, ReviewStatus
 from crossfoot.db import documents, review
 
@@ -44,7 +50,7 @@ def review_queue(
     tier: TierFilter = None,
     sort: QueueSort = review.QueueSort.CONFIDENCE,
     limit: Annotated[int, Query(ge=1, le=MAX_QUEUE_LIMIT)] = DEFAULT_QUEUE_LIMIT,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> Page[ReviewItem]:
     """Fields ranked least trusted first, with the count the filter matched."""
     rows, total = review.queue(

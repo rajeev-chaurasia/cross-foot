@@ -37,6 +37,12 @@ from crossfoot.constants import (
 )
 
 api = pytest.importorskip("crossfoot.api")
+dto = pytest.importorskip("crossfoot.api.dto")
+
+# Read from the one place they are declared, so a widened bound cannot pass
+# these tests unnoticed.
+MAX_PAGE_OFFSET: int = dto.MAX_PAGE_OFFSET
+MAX_RESOLUTION_LENGTH: int = dto.MAX_RESOLUTION_LENGTH
 
 DOC = "doc-a"
 MISSING_EXCEPTION = "exc-nope-9999"
@@ -232,6 +238,34 @@ def test_a_negative_offset_is_rejected(client: TestClient) -> None:
     assert client.get("/api/exceptions", params={"offset": -1}).status_code == 422
 
 
+# The offset is bound as a SQLite integer, so the route has to refuse one it
+# cannot bind rather than let an OverflowError out of the query.
+
+
+def test_an_offset_at_the_bound_is_still_an_empty_page_with_the_true_total(
+    client: TestClient,
+) -> None:
+    payload = listing(client, offset=MAX_PAGE_OFFSET)
+    assert payload["items"] == []
+    assert payload["total"] == 5
+
+
+def test_an_offset_past_the_bound_is_rejected(client: TestClient) -> None:
+    response = client.get("/api/exceptions", params={"offset": MAX_PAGE_OFFSET + 1})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "offset",
+    ["999999999999999999999", "9223372036854775808", "18446744073709551616"],
+)
+def test_an_offset_too_large_to_bind_is_a_422_and_never_a_500(
+    client: TestClient, offset: str
+) -> None:
+    response = client.get("/api/exceptions", params={"offset": offset})
+    assert response.status_code == 422
+
+
 # Filters.
 
 
@@ -320,3 +354,21 @@ def test_unknown_exception_id_is_404_on_resolve(client: TestClient) -> None:
         f"/api/exceptions/{MISSING_EXCEPTION}/resolve", json={"resolution": "credited"}
     )
     assert response.status_code == 404
+
+
+def test_a_resolution_at_the_stored_length_is_accepted(client: TestClient) -> None:
+    response = client.post(
+        "/api/exceptions/exc-1/resolve", json={"resolution": "c" * MAX_RESOLUTION_LENGTH}
+    )
+    assert response.status_code == 200
+
+
+def test_a_resolution_past_the_stored_length_leaves_the_exception_open(
+    client: TestClient, db_path: Path
+) -> None:
+    response = client.post(
+        "/api/exceptions/exc-1/resolve", json={"resolution": "c" * (MAX_RESOLUTION_LENGTH + 1)}
+    )
+    assert response.status_code == 422
+    assert "resolution" in response.text
+    assert exception_row(db_path, "exc-1")["status"] == ExceptionStatus.OPEN.value

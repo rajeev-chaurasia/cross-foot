@@ -10,14 +10,17 @@ anything that escapes the crop root is a 400, never a file read". The same
 severity applies here, so a real file is planted outside the crop root and every
 hostile request is checked for its bytes.
 
-Two families of hostile input, and the difference is routing, not policy:
+Three families of hostile input, and the difference is routing, not policy:
 
 - a segment that stays one path segment ("..", "..\\outside", "C:", "\\\\.\\C:",
   "\\etc\\passwd") reaches the handler, so the handler must answer 400
+- a segment carrying a null byte also stays one path segment and is not a
+  traversal at all, so it reaches the handler and leaves by the same 400 rather
+  than as a ValueError out of the resolver
 - a segment carrying percent-encoded separators decodes to extra path segments
   before the router sees it, so it matches no route and dies at 404
 
-Both must leak nothing, which is the assertion that actually matters.
+All three must leak nothing, which is the assertion that actually matters.
 """
 
 import sqlite3
@@ -59,6 +62,18 @@ ROUTABLE_ESCAPES = (
     "/api/crops/C%3A/secret.png",  # doc_id "C:", a Windows drive letter
     "/api/crops/%5C%5C.%5CC%3A/secret.png",  # doc_id "\\\\.\\C:", device form
     "/api/crops/%5Cetc%5Cpasswd/secret.png",  # doc_id "\\etc\\passwd", rooted
+)
+
+# A null byte survives as one path segment and is not a traversal, so it reaches
+# the handler like the forms above and has to leave by the same 400. It is here
+# because the filesystem call inside the resolver raises on it, and a rejection
+# the route does not make itself is a 500 rather than the contract's 400.
+NULL_BYTE_ESCAPES = (
+    "/api/crops/%00/secret.png",
+    "/api/crops/doc-a/%00.png",
+    "/api/crops/doc-a/fld-a-0002%00.png",
+    "/api/crops/doc-a%00/fld-a-0002.png",
+    "/api/crops/%00/%00.png",
 )
 
 # Hostile segments carrying encoded separators. These decode into extra path
@@ -158,6 +173,20 @@ def test_an_escaping_segment_never_returns_the_planted_file(client: TestClient, 
     assert response.status_code != 200
 
 
+@pytest.mark.parametrize("url", NULL_BYTE_ESCAPES)
+def test_a_segment_carrying_a_null_byte_is_400(client: TestClient, url: str) -> None:
+    response = client.get(url)
+    assert response.status_code == 400
+    assert response.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.parametrize("url", NULL_BYTE_ESCAPES)
+def test_a_null_byte_never_returns_the_planted_file(client: TestClient, url: str) -> None:
+    response = client.get(url)
+    assert SECRET_BYTES not in response.content
+    assert CROP_BYTES not in response.content
+
+
 @pytest.mark.parametrize("url", ENCODED_SEPARATOR_ESCAPES)
 def test_encoded_separators_never_reach_a_file(client: TestClient, url: str) -> None:
     response = client.get(url)
@@ -167,12 +196,12 @@ def test_encoded_separators_never_reach_a_file(client: TestClient, url: str) -> 
 
 
 def test_the_planted_file_is_still_where_it_was_left(client: TestClient, crops_root: Path) -> None:
-    for url in (*ROUTABLE_ESCAPES, *ENCODED_SEPARATOR_ESCAPES):
+    for url in (*ROUTABLE_ESCAPES, *NULL_BYTE_ESCAPES, *ENCODED_SEPARATOR_ESCAPES):
         assert SECRET_BYTES not in client.get(url).content
     assert (crops_root.parent / "outside" / "secret.png").read_bytes() == SECRET_BYTES
 
 
 def test_containment_does_not_break_the_ordinary_request(client: TestClient) -> None:
-    for url in ROUTABLE_ESCAPES:
+    for url in (*ROUTABLE_ESCAPES, *NULL_BYTE_ESCAPES):
         client.get(url)
     assert client.get(f"/api/crops/{DOC}/{FIELD}.png").content == CROP_BYTES

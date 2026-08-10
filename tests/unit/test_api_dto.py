@@ -1,11 +1,25 @@
-"""A correction is validated by the family it belongs to, and a crop link cannot climb out."""
+"""A correction is validated by the family it belongs to, and a crop link cannot climb out.
+
+The corrections table is append only and exists to say who changed what, so the
+two strings it stores are bounded and an attribution cannot be blank.
+"""
 
 import pytest
+from pydantic import ValidationError
 
-from crossfoot.api.dto import CorrectionRequest, crop_url
+from crossfoot.api.dto import (
+    MAX_CORRECTION_VALUE_LENGTH,
+    MAX_RESOLUTION_LENGTH,
+    MAX_REVIEWER_LENGTH,
+    CorrectionRequest,
+    ResolutionRequest,
+    crop_url,
+)
 from crossfoot.constants import FieldFamily
 
 REVIEWER = "rc"
+
+BLANK_REVIEWERS = ("", " ", "   ", "\t", "\n", " \t\n ")
 
 
 def correction(value: str) -> CorrectionRequest:
@@ -55,6 +69,45 @@ def test_a_reference_or_text_value_is_kept_verbatim_apart_from_padding(
     # holds what is printed on the statement.
     assert correction("  NS12345678 ").canonical_for(family) == "NS12345678"
     assert correction("   ").canonical_for(family) is None
+
+
+# Bounds on what a correction stores. These are storage limits on an audit
+# record, not a security boundary: nothing renders these strings as markup.
+
+
+def test_a_value_at_the_limit_is_accepted() -> None:
+    assert len(correction("9" * MAX_CORRECTION_VALUE_LENGTH).value) == MAX_CORRECTION_VALUE_LENGTH
+
+
+def test_a_value_past_the_limit_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="at most"):
+        correction("9" * (MAX_CORRECTION_VALUE_LENGTH + 1))
+
+
+@pytest.mark.parametrize("blank", BLANK_REVIEWERS)
+def test_a_blank_reviewer_is_not_an_attribution(blank: str) -> None:
+    with pytest.raises(ValidationError, match="at least"):
+        CorrectionRequest(value="1999.99", reviewer=blank)
+
+
+def test_a_reviewer_past_the_limit_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="at most"):
+        CorrectionRequest(value="1999.99", reviewer="r" * (MAX_REVIEWER_LENGTH + 1))
+
+
+def test_a_reviewer_is_stored_without_its_padding() -> None:
+    # The row names a person, so the padding around the name is not part of it.
+    assert CorrectionRequest(value="1999.99", reviewer="  rc  ").reviewer == REVIEWER
+
+
+def test_a_resolution_at_the_limit_is_accepted() -> None:
+    resolution = ResolutionRequest(resolution="c" * MAX_RESOLUTION_LENGTH)
+    assert len(resolution.resolution) == MAX_RESOLUTION_LENGTH
+
+
+def test_a_resolution_past_the_limit_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="at most"):
+        ResolutionRequest(resolution="c" * (MAX_RESOLUTION_LENGTH + 1))
 
 
 def test_a_crop_link_keeps_each_identifier_in_one_path_segment() -> None:

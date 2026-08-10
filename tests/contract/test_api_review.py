@@ -48,12 +48,20 @@ from crossfoot.constants import (
 )
 
 api = pytest.importorskip("crossfoot.api")
+dto = pytest.importorskip("crossfoot.api.dto")
+
+# The paging and audit-trail bounds the routes enforce, read from the one place
+# they are declared so a widened bound cannot pass these tests unnoticed.
+MAX_PAGE_OFFSET: int = dto.MAX_PAGE_OFFSET
+MAX_CORRECTION_VALUE_LENGTH: int = dto.MAX_CORRECTION_VALUE_LENGTH
+MAX_REVIEWER_LENGTH: int = dto.MAX_REVIEWER_LENGTH
 
 DOC_A = "doc-a"
 DOC_B = "doc-b"
 
 AMOUNT_FIELD = "fld-a-0002"  # line 1 of doc-a, value 1234.56, confidence 0.20
 DATE_FIELD = "fld-a-0003"  # line 1 of doc-a, value 2026-07-15, confidence 0.55
+TEXT_FIELD = "fld-a-0004"  # line 1 of doc-a, a description, confidence 0.72
 ACCEPT_FIELD = "fld-b-0001"  # line 1 of doc-b, confidence 0.31
 MISSING_FIELD = "fld-nope-9999"
 
@@ -393,6 +401,34 @@ def test_total_follows_the_filter_through_paging(client: TestClient) -> None:
     assert payload["total"] == 6
 
 
+# The offset is bound as a SQLite integer, so the route has to refuse one it
+# cannot bind rather than let an OverflowError out of the query.
+
+
+def test_an_offset_at_the_bound_is_still_an_empty_page_with_the_true_total(
+    client: TestClient,
+) -> None:
+    payload = queue(client, offset=MAX_PAGE_OFFSET)
+    assert payload["items"] == []
+    assert payload["total"] == 8
+
+
+def test_an_offset_past_the_bound_is_rejected(client: TestClient) -> None:
+    response = client.get("/api/review/queue", params={"offset": MAX_PAGE_OFFSET + 1})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "offset",
+    ["999999999999999999999", "9223372036854775808", "18446744073709551616"],
+)
+def test_an_offset_too_large_to_bind_is_a_422_and_never_a_500(
+    client: TestClient, offset: str
+) -> None:
+    response = client.get("/api/review/queue", params={"offset": offset})
+    assert response.status_code == 422
+
+
 # Item detail.
 
 
@@ -570,6 +606,69 @@ def test_correct_rejects_an_impossible_date_with_422_naming_the_family(
     assert FieldFamily.DATE.value in response.text
     assert corrections(db_path, DATE_FIELD) == []
     assert field_row(db_path, DATE_FIELD)["status"] == ReviewStatus.NEEDS_REVIEW.value
+
+
+# The corrections table is the audit trail, so what it stores is bounded and
+# every row carries an attribution.
+
+
+@pytest.mark.parametrize("blank", ["", " ", "   ", "\t"])
+def test_correct_rejects_a_blank_reviewer_and_writes_no_row(
+    client: TestClient, db_path: Path, blank: str
+) -> None:
+    response = client.post(
+        f"/api/review/items/{AMOUNT_FIELD}/correct",
+        json={"value": "1999.99", "reviewer": blank},
+    )
+    assert response.status_code == 422
+    assert "reviewer" in response.text
+    assert corrections(db_path, AMOUNT_FIELD) == []
+    assert field_row(db_path, AMOUNT_FIELD)["status"] == ReviewStatus.NEEDS_REVIEW.value
+
+
+def test_correct_rejects_a_value_past_the_stored_length(client: TestClient, db_path: Path) -> None:
+    # A text field, so the family parses anything and the length is the only
+    # thing that can reject it.
+    response = client.post(
+        f"/api/review/items/{TEXT_FIELD}/correct",
+        json={"value": "x" * (MAX_CORRECTION_VALUE_LENGTH + 1), "reviewer": REVIEWER},
+    )
+    assert response.status_code == 422
+    assert "value" in response.text
+    assert corrections(db_path, TEXT_FIELD) == []
+
+
+def test_correct_accepts_a_text_value_at_the_stored_length(
+    client: TestClient, db_path: Path
+) -> None:
+    longest = "x" * MAX_CORRECTION_VALUE_LENGTH
+    response = client.post(
+        f"/api/review/items/{TEXT_FIELD}/correct",
+        json={"value": longest, "reviewer": REVIEWER},
+    )
+    assert response.status_code == 200
+    assert [row["new_value"] for row in corrections(db_path, TEXT_FIELD)] == [longest]
+
+
+def test_correct_rejects_a_reviewer_past_the_stored_length(
+    client: TestClient, db_path: Path
+) -> None:
+    response = client.post(
+        f"/api/review/items/{AMOUNT_FIELD}/correct",
+        json={"value": "1999.99", "reviewer": "r" * (MAX_REVIEWER_LENGTH + 1)},
+    )
+    assert response.status_code == 422
+    assert "reviewer" in response.text
+    assert corrections(db_path, AMOUNT_FIELD) == []
+
+
+def test_correct_stores_the_reviewer_without_its_padding(client: TestClient, db_path: Path) -> None:
+    response = client.post(
+        f"/api/review/items/{AMOUNT_FIELD}/correct",
+        json={"value": "1999.99", "reviewer": f"  {REVIEWER}  "},
+    )
+    assert response.status_code == 200
+    assert [row["reviewer"] for row in corrections(db_path, AMOUNT_FIELD)] == [REVIEWER]
 
 
 def test_unknown_field_id_is_404_on_detail(client: TestClient) -> None:

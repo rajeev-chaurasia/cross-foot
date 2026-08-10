@@ -9,13 +9,18 @@ from pathlib import Path, PureWindowsPath
 
 
 class UnsafeDatasetPathError(ValueError):
-    """A manifest path is absolute, escapes the dataset directory, or is empty."""
+    """A manifest path is absolute, escapes the dataset directory, is empty, or is unusable."""
 
 
 def resolve_dataset_path(dataset_dir: Path, relative_path: str) -> Path:
     """Resolve a manifest-relative path inside dataset_dir, or raise UnsafeDatasetPathError."""
     if not relative_path.strip():
         raise UnsafeDatasetPathError("manifest path is empty")
+    # A null byte is not a traversal, but it survives every check below and the
+    # filesystem call inside resolve() raises on it, so containment has to fail
+    # closed here rather than let a ValueError out of the resolver.
+    if "\x00" in relative_path:
+        raise UnsafeDatasetPathError(f"manifest path contains a null byte: {relative_path!r}")
     # Windows semantics are the strict reading everywhere: they recognize drive
     # letters, UNC and device prefixes, and backslash separators.
     candidate = PureWindowsPath(relative_path)

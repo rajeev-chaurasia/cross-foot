@@ -10,9 +10,10 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime
 from enum import StrEnum
+from typing import Annotated
 from urllib.parse import quote
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from crossfoot.api.deps import API_PREFIX, CROP_PATH_TEMPLATE
 from crossfoot.constants import (
@@ -30,6 +31,27 @@ from crossfoot.extraction.normalize import format_cents, parse_amount_to_cents, 
 from crossfoot.models.extraction import FieldSignals
 from crossfoot.models.reconciliation import ExceptionRecord
 from crossfoot.models.scorecard import CalibrationBin, Scorecard, ThresholdPoint
+
+# SQLite binds an offset as a 64-bit integer, so a paged route has to refuse one
+# it cannot bind; a billion rows is past any listing a reviewer pages to and far
+# inside that range.
+MAX_PAGE_OFFSET = 1_000_000_000
+
+# A reviewer replaces one cell of a statement, so a correction is a cell's worth
+# of text: the longest value the pipeline has read is an order of magnitude under
+# this, and a resolution is a note rather than an attachment.
+MAX_CORRECTION_VALUE_LENGTH = 256
+MAX_REVIEWER_LENGTH = 128
+MAX_RESOLUTION_LENGTH = 1_000
+
+CorrectionValue = Annotated[str, StringConstraints(max_length=MAX_CORRECTION_VALUE_LENGTH)]
+# The corrections table exists to say who changed what, so an attribution that is
+# blank or only spaces is not an attribution. Stripping first makes the two the
+# same rejection.
+Reviewer = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_REVIEWER_LENGTH)
+]
+Resolution = Annotated[str, StringConstraints(max_length=MAX_RESOLUTION_LENGTH)]
 
 
 class Page[ItemT](BaseModel):
@@ -162,8 +184,8 @@ class CropUnavailable(BaseModel):
 class CorrectionRequest(BaseModel):
     """A reviewer's replacement value, validated against the field's family."""
 
-    value: str
-    reviewer: str
+    value: CorrectionValue
+    reviewer: Reviewer
 
     def canonical_for(self, family: FieldFamily) -> str | None:
         """The value as the family stores it, or None when the family cannot parse it.
@@ -197,7 +219,7 @@ class ExceptionItem(ExceptionRecord):
 class ResolutionRequest(BaseModel):
     """What a reviewer did about an exception, recorded as they close it."""
 
-    resolution: str
+    resolution: Resolution
 
 
 class Summary(BaseModel):

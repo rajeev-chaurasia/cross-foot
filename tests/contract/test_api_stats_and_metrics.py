@@ -307,6 +307,23 @@ def client(tmp_path: Path, db_path: Path, scorecards_dir: Path) -> Iterator[Test
         yield test_client
 
 
+# A directory name is server configuration, so it is deliberately one the 404
+# body would be caught interpolating.
+UNPUBLISHABLE_DIRECTORY_NAME = "crossfoot-scorecards-secret"
+
+
+@pytest.fixture
+def bare_client(tmp_path: Path, db_path: Path) -> Iterator[TestClient]:
+    """An app whose scorecards directory holds nothing, so /api/metrics is a 404."""
+    crops_root = tmp_path / "bare-crops"
+    crops_root.mkdir()
+    scorecards_dir = tmp_path / UNPUBLISHABLE_DIRECTORY_NAME
+    scorecards_dir.mkdir()
+    app = api.create_app(db_path=db_path, crops_root=crops_root, scorecards_dir=scorecards_dir)
+    with TestClient(app) as test_client:
+        yield test_client
+
+
 def summary(client: TestClient) -> dict[str, Any]:
     response = client.get("/api/stats/summary")
     assert response.status_code == 200
@@ -425,6 +442,21 @@ def test_metrics_returns_the_threshold_sweep(client: TestClient) -> None:
     assert payload["threshold_sweep"] == expected
     # The newer run's operating point, not the older run's 0.31.
     assert payload["threshold_sweep"][0]["review_rate"] == pytest.approx(0.181)
+
+
+def test_no_committed_scorecard_is_a_404(bare_client: TestClient) -> None:
+    assert bare_client.get("/api/metrics").status_code == 404
+
+
+def test_the_404_body_does_not_carry_the_scorecards_directory(
+    bare_client: TestClient, tmp_path: Path
+) -> None:
+    # Where the server keeps its files is not a fact a client is owed, and a
+    # deployment on an absolute path would otherwise publish it.
+    body = bare_client.get("/api/metrics").text
+    assert UNPUBLISHABLE_DIRECTORY_NAME not in body
+    assert str(tmp_path) not in body
+    assert tmp_path.name not in body
 
 
 def test_metrics_publishes_the_scorecard_sweep_not_the_applied_thresholds(

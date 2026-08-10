@@ -23,7 +23,9 @@ _LOGGER = logging.getLogger(__name__)
 router = APIRouter(tags=["metrics"])
 
 SCORECARD_FILENAME = "scorecard.json"
-NO_SCORECARD_DETAIL = "no committed scorecard under {scorecards_dir}"
+# Where the scorecards live is server configuration, so it stays out of a body a
+# client reads; the operator learns the directory from the log line instead.
+NO_SCORECARD_DETAIL = "no committed scorecard"
 
 
 @router.get("/stats/summary")
@@ -42,10 +44,8 @@ def metrics(paths: Paths) -> MetricsPayload:
     # served in its place.
     scorecard = latest_scorecard(paths.scorecards_dir)
     if scorecard is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=NO_SCORECARD_DETAIL.format(scorecards_dir=paths.scorecards_dir),
-        )
+        _LOGGER.warning("no committed scorecard under %s", paths.scorecards_dir)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NO_SCORECARD_DETAIL)
     return MetricsPayload.of(scorecard)
 
 
