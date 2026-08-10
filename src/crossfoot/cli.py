@@ -424,6 +424,7 @@ async def _extract_split(
         DocumentOutcome,
         report_to_stderr,
         reset_provider_failures,
+        reset_stale_unrecognized,
     )
     from crossfoot.extraction.llm_vision import VisionExtractor, rasterize_pdf
     from crossfoot.extraction.router import route_file
@@ -446,6 +447,14 @@ async def _extract_split(
         reopened = reset_provider_failures(state, run_id, list(records))
         if reopened:
             report_to_stderr(f"{reopened} provider failures reset to pending")
+        # Second recovery, for the other way a DONE row can be stale. An
+        # unrecognized verdict says what this build could read when it was
+        # written, so a router that has since learned a format has to re-ask.
+        rerouted = reset_stale_unrecognized(
+            state, run_id, list(records), routes_served=_routes_with_extractors()
+        )
+        if rerouted:
+            report_to_stderr(f"{rerouted} unrecognized documents reset for a route that now exists")
 
     vision: VisionExtractor | None = None
     vision_pool: SpilloverClient | None = None
@@ -566,6 +575,17 @@ async def _extract_split(
         skipped=result.skipped,
         degradations=degradations(),
     )
+
+
+def _routes_with_extractors() -> frozenset[ExtractionRoute]:
+    """Every route `extract` can serve: the deterministic table plus the scans.
+
+    Read from the table rather than restated, so a route that gains or loses an
+    extractor changes this set with it.
+    """
+    from crossfoot.evals.runner import ROUTE_EXTRACTORS
+
+    return frozenset(ROUTE_EXTRACTORS) | {ExtractionRoute.SCANNED_PDF}
 
 
 def _run_id(split: SplitName, config_hash: str) -> str:

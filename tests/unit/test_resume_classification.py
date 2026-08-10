@@ -17,15 +17,22 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pdf_fixtures import TRUTH_DOC
 from typer.testing import CliRunner
 
 from crossfoot import cli
 from crossfoot.constants import (
+    CorruptionKind,
     DocType,
     ExtractionRoute,
     IngestErrorKind,
 )
-from crossfoot.extraction.batch import BatchExtractor, DocumentOutcome, reset_provider_failures
+from crossfoot.extraction.batch import (
+    BatchExtractor,
+    DocumentOutcome,
+    reset_provider_failures,
+    reset_stale_unrecognized,
+)
 from crossfoot.extraction.failures import (
     FAILURE_CLASSES,
     PROVIDER_FAILURE_DETAIL,
@@ -33,6 +40,8 @@ from crossfoot.extraction.failures import (
     failure_class_of,
 )
 from crossfoot.extraction.llm_vision import SCHEMA_FAILURE_DETAIL, PageImage, VisionExtractor
+from crossfoot.generator.corrupt import build_minimal_pdf, write_corrupted
+from crossfoot.generator.renderers.tabular import render_xlsx
 from crossfoot.llm.client import ChatResult, ChatUsage
 from crossfoot.llm.results import LlmError
 from crossfoot.llm.runstate import DocStatus, RunState
@@ -49,6 +58,8 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\n"
 BAD_SAMPLE = json.dumps({"lines": [{"row_position": "ROW-TWO"}]})
 
 NO_EXTRACTOR_DETAIL = cli.NO_EXTRACTOR_DETAIL.format(route=ExtractionRoute.XLSX.value)
+# The template TRUTH_DOC is written with when a test needs real workbook bytes.
+XLSX_TEMPLATE = "meridian-parts_statement-xlsx-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +312,97 @@ def test_reclassification_is_idempotent(tmp_path: Path) -> None:
     # Nothing left to move, and nothing already moved is touched again.
     assert reset_provider_failures(state, RUN_ID, DOC_IDS) == 0
     assert [state.status(RUN_ID, doc_id) for doc_id in DOC_IDS] == before
+
+
+# ---------------------------------------------------------------------------
+# Rows whose unrecognized verdict a later router disagrees with
+# ---------------------------------------------------------------------------
+
+
+def _unprocessable_at(
+    doc_id: str, path: Path, kind: IngestErrorKind, detail: str
+) -> ExtractedDocument:
+    """The same verdict as `_unprocessable`, on a file the router can be re-asked about."""
+    return ExtractedDocument(
+        doc_id=doc_id,
+        file_path=path.as_posix(),
+        route=ExtractionRoute.UNPROCESSABLE,
+        error=IngestError(kind=kind, detail=detail),
+    )
+
+
+def _reset_stale(state: RunState) -> int:
+    return reset_stale_unrecognized(
+        state, RUN_ID, DOC_IDS, routes_served=cli._routes_with_extractors()
+    )
+
+
+def test_a_workbook_the_router_learned_to_read_is_reopened(tmp_path: Path) -> None:
+    workbook = tmp_path / "book.xlsx"
+    render_xlsx(TRUTH_DOC, XLSX_TEMPLATE, 3, workbook)
+    state = _state(tmp_path)
+    _done_with(state, _extracted(SERVED))
+    _done_with(
+        state,
+        _unprocessable_at(LOST, workbook, IngestErrorKind.UNRECOGNIZED, NO_EXTRACTOR_DETAIL),
+    )
+
+    assert _reset_stale(state) == 1
+    assert state.status(RUN_ID, LOST) is DocStatus.PENDING
+    # The superseded verdict goes with it, so it cannot reach the output file.
+    assert state.result(RUN_ID, LOST) is None
+    assert state.status(RUN_ID, SERVED) is DocStatus.DONE
+    # Nothing is DONE and stale any more, so a second resume moves nothing.
+    assert _reset_stale(state) == 0
+
+
+def test_a_file_the_router_still_places_nowhere_keeps_its_verdict(tmp_path: Path) -> None:
+    junk = tmp_path / "junk.pdf"
+    write_corrupted(CorruptionKind.BINARY_JUNK, 11, junk)
+    state = _state(tmp_path)
+    _done_with(
+        state,
+        _unprocessable_at(
+            CORRUPTED, junk, IngestErrorKind.UNRECOGNIZED, "no recognized file signature"
+        ),
+    )
+
+    assert _reset_stale(state) == 0
+    assert state.status(RUN_ID, CORRUPTED) is DocStatus.DONE
+    assert state.result(RUN_ID, CORRUPTED) is not None
+
+
+def test_a_provider_failure_is_left_to_the_provider_reset(tmp_path: Path) -> None:
+    scan = tmp_path / "scan.pdf"
+    scan.write_bytes(build_minimal_pdf("x"))
+    state = _state(tmp_path)
+    # The legacy shape sits on a file the vision path serves, so only the detail
+    # separates the two recoveries and exactly one of them may take the row.
+    _done_with(
+        state,
+        _unprocessable_at(
+            LOST,
+            scan,
+            IngestErrorKind.UNRECOGNIZED,
+            f"{PROVIDER_FAILURE_DETAIL}: groq: 400 from a text only model",
+        ),
+    )
+
+    assert _reset_stale(state) == 0
+    assert state.status(RUN_ID, LOST) is DocStatus.DONE
+    assert reset_provider_failures(state, RUN_ID, DOC_IDS) == 1
+    assert state.status(RUN_ID, LOST) is DocStatus.PENDING
+    assert _reset_stale(state) == 0
+
+
+def test_a_run_with_nothing_stale_reopens_nothing(tmp_path: Path) -> None:
+    state = _state(tmp_path)
+    for doc_id in DOC_IDS:
+        _done_with(state, _extracted(doc_id))
+
+    assert _reset_stale(state) == 0
+    assert [state.status(RUN_ID, doc_id) for doc_id in DOC_IDS] == [DocStatus.DONE] * len(DOC_IDS)
+    assert state.pending_docs(RUN_ID) == ()
 
 
 # ---------------------------------------------------------------------------

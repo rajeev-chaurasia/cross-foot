@@ -20,10 +20,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Container, Iterable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
+from crossfoot.constants import ExtractionRoute, IngestErrorKind
 from crossfoot.extraction.failures import FailureClass, failure_class_of, is_provider_failure
+from crossfoot.extraction.router import route_file
 from crossfoot.llm.ratelimit import Clock, MonotonicClock
 from crossfoot.llm.runstate import DocStatus, RunState
 from crossfoot.models.extraction import ExtractedDocument
@@ -87,6 +90,48 @@ def reset_provider_failures(state: RunState, run_id: str, doc_ids: Iterable[str]
         state.reset_to_pending(run_id, doc_id)
         reopened += 1
     return reopened
+
+
+def reset_stale_unrecognized(
+    state: RunState,
+    run_id: str,
+    doc_ids: Iterable[str],
+    *,
+    routes_served: Container[ExtractionRoute],
+) -> int:
+    """Re-open DONE rows this build no longer calls unrecognized; returns how many.
+
+    `unrecognized` is a claim about what this build can read rather than about
+    the file, so a router that has since learned a format has to re-ask instead
+    of inheriting the old verdict. A file the router still sends nowhere keeps
+    its verdict, and a provider failure belongs to `reset_provider_failures`, so
+    neither is taken here. Idempotent: a re-opened row is no longer DONE.
+    """
+    reopened = 0
+    for doc_id in doc_ids:
+        if state.status(run_id, doc_id) is not DocStatus.DONE:
+            continue
+        stored = state.result(run_id, doc_id)
+        if stored is None:
+            continue
+        document = ExtractedDocument.model_validate_json(stored)
+        if not _routes_somewhere_now(document, routes_served):
+            continue
+        state.reset_to_pending(run_id, doc_id)
+        reopened += 1
+    return reopened
+
+
+def _routes_somewhere_now(
+    document: ExtractedDocument, routes_served: Container[ExtractionRoute]
+) -> bool:
+    """True when an unrecognized result names a file some extractor now serves."""
+    error = document.error
+    if document.route is not ExtractionRoute.UNPROCESSABLE or error is None:
+        return False
+    if error.kind is not IngestErrorKind.UNRECOGNIZED or is_provider_failure(document):
+        return False
+    return route_file(Path(document.file_path)).route in routes_served
 
 
 def _failure_detail(outcome: DocumentOutcome) -> str:
