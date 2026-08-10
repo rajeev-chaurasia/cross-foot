@@ -426,7 +426,7 @@ async def _extract_split(
         reset_provider_failures,
         reset_stale_unrecognized,
     )
-    from crossfoot.extraction.llm_vision import VisionExtractor, rasterize_pdf
+    from crossfoot.extraction.llm_vision import RasterizeError, VisionExtractor, rasterize_pdf
     from crossfoot.extraction.router import route_file
     from crossfoot.llm.cache import ResponseCache
     from crossfoot.llm.runstate import RunState
@@ -514,6 +514,14 @@ async def _extract_split(
             return _unprocessable_outcome(
                 doc_id, path.as_posix(), IngestErrorKind.UNRECOGNIZED, NO_DOC_TYPE_DETAIL
             )
+        try:
+            images = rasterize_pdf(path)
+        except RasterizeError as error:
+            # Rasterized before a provider is asked for, so a document that
+            # cannot become pages costs no call. The error is terminal: letting
+            # the raise reach the batch would mark the document FAILED, which is
+            # the transient class, and every resume would rasterize it again.
+            return _unprocessable_outcome(doc_id, path.as_posix(), error.kind, error.detail)
         extractor = await vision_extractor()
         return DocumentOutcome(
             document=await extractor.extract_document(
@@ -525,7 +533,7 @@ async def _extract_split(
                 # dispatched on, so no field carries a degradation label only the
                 # generator could know.
                 doc_type=record.truth.doc_type,
-                images=rasterize_pdf(path),
+                images=images,
             )
         )
 

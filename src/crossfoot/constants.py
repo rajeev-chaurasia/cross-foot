@@ -312,6 +312,19 @@ class SplitName(StrEnum):
 
 
 # ---------------------------------------------------------------------------
+# Rasterization ceilings
+# ---------------------------------------------------------------------------
+
+# Pixels one page may occupy once rendered. Shared by the two paths that
+# rasterize a page, the vision extractor at 180 dpi and the review crop at 200,
+# because the number bounds the same thing in both: the bitmap PDFium allocates.
+# A tabloid page at 200 dpi is 7.5 megapixels, so every page a dealer prints
+# fits, while the 200 by 200 inch MediaBox a PDF may legally declare does not:
+# at 180 dpi that page is 1.3 gigapixels and several gigabytes of bitmap, which
+# a 333 byte file is enough to ask for.
+MAX_PAGE_PIXELS = 8 * 1024 * 1024
+
+# ---------------------------------------------------------------------------
 # Reference-number grammars
 # ---------------------------------------------------------------------------
 

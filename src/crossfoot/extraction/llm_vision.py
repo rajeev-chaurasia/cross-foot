@@ -1,9 +1,17 @@
 """Vision extraction: rasterize the pages, ask twice, map the answer onto fields.
 
-Document text is data and never instruction; the system prompt says so and a
-contract test attacks it. Correctness never depends on model coordinates: the
-optional bbox is a crop hint, checked here for frame sanity and again in
-crops.py against detected row stripes before it refines anything.
+Document content reaches the model as pixels and nothing else. Only the rendered
+image is sent, so no text lifted off the page is ever concatenated into a prompt
+and there is no textual channel from a document into the instructions at all.
+The prompt itself is split by role, the system half declaring page content to be
+data rather than instruction, and the answer is not read as text either: it is
+parsed by the frozen pydantic model that doc type owns, so a value only survives
+by fitting a declared field. What a page can still do is print a wrong value,
+which is an accuracy question the eval measures, not an injection.
+
+Correctness never depends on model coordinates: the optional bbox is a crop
+hint, checked here for frame sanity and again in crops.py against detected row
+stripes before it refines anything.
 """
 
 from __future__ import annotations
@@ -19,12 +27,13 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from PIL import Image
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from crossfoot import pdfium
 from crossfoot.confidence.signals import crossfoot_delta_cents
 from crossfoot.constants import (
     FIELD_FAMILIES,
+    MAX_PAGE_PIXELS,
     DocType,
     ExtractionRoute,
     FieldFamily,
@@ -40,6 +49,7 @@ from crossfoot.extraction.normalize import (
     parse_date,
     strip_control_chars,
 )
+from crossfoot.extraction.pdf_text import MAX_FILE_BYTES, MAX_LINE_ROWS, MAX_PAGES
 from crossfoot.llm.results import ChatResult, LlmError
 from crossfoot.llm.results import PageImage as ClientPageImage
 from crossfoot.models.extraction import (
@@ -53,7 +63,9 @@ from crossfoot.models.extraction import (
 _LOGGER = logging.getLogger(__name__)
 
 # Rasterization. 180 dpi keeps six point print legible; the edge cap bounds the
-# image token count, which is what a free tier actually rations.
+# image token count, which is what a free tier actually rations. The file size
+# and page ceilings are the born-digital reader's, imported rather than restated
+# so one hostile PDF meets the same ceiling whichever tier it is routed to.
 VISION_DPI = 180
 PDF_POINTS_PER_INCH = 72
 MAX_IMAGE_EDGE_PX = 1600
@@ -80,6 +92,14 @@ SCHEMA_FAILURE_DETAIL = "structured output failed validation twice"
 
 AGREES = 1.0
 DISAGREES = 0.0
+
+# Bounds on the integers a model chooses for itself. row_position is 1-based, so
+# zero or a negative ordinal is not a row on any page and would print a field id
+# like fld-doc--005-vin; page indexes a document this module refuses past
+# MAX_PAGES; and the line count is the deterministic reader's row ceiling, so the
+# two tiers cannot disagree about how long a statement is allowed to be.
+MIN_ROW_POSITION = 1
+FIRST_PAGE_INDEX = 0
 
 SYSTEM_ROLE = "system"
 USER_ROLE = "user"
@@ -115,8 +135,9 @@ class VisionValue(BaseModel):
 class VisionLine(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    row_position: int  # 1-based index among the table rows visible on the page
-    page: int = 0
+    # 1-based index among the table rows visible on the page.
+    row_position: int = Field(ge=MIN_ROW_POSITION, le=MAX_LINE_ROWS)
+    page: int = Field(default=FIRST_PAGE_INDEX, ge=FIRST_PAGE_INDEX, lt=MAX_PAGES)
     bbox: tuple[int, int, int, int] | None = None  # 0 to 1000 frame, a crop hint only
 
 
@@ -128,7 +149,7 @@ class VisionDocument(BaseModel):
     previous_balance: VisionValue | None = None
     subtotal: VisionValue | None = None
     total: VisionValue | None = None
-    lines: tuple[VisionLine, ...] = ()
+    lines: tuple[VisionLine, ...] = Field(default=(), max_length=MAX_LINE_ROWS)
 
 
 class PartsLine(VisionLine):
@@ -162,20 +183,22 @@ class IncentiveLine(VisionLine):
     line_amount: VisionValue | None = None
 
 
+# Each response narrows `lines` to its own row type, which replaces the field
+# outright, so the row ceiling is restated with it rather than inherited.
 class PartsStatementResponse(VisionDocument):
-    lines: tuple[PartsLine, ...] = ()
+    lines: tuple[PartsLine, ...] = Field(default=(), max_length=MAX_LINE_ROWS)
 
 
 class WarrantyCreditMemoResponse(VisionDocument):
-    lines: tuple[WarrantyLine, ...] = ()
+    lines: tuple[WarrantyLine, ...] = Field(default=(), max_length=MAX_LINE_ROWS)
 
 
 class FloorplanStatementResponse(VisionDocument):
-    lines: tuple[FloorplanLine, ...] = ()
+    lines: tuple[FloorplanLine, ...] = Field(default=(), max_length=MAX_LINE_ROWS)
 
 
 class IncentiveStatementResponse(VisionDocument):
-    lines: tuple[IncentiveLine, ...] = ()
+    lines: tuple[IncentiveLine, ...] = Field(default=(), max_length=MAX_LINE_ROWS)
 
 
 _RESPONSE_MODELS: dict[DocType, type[VisionDocument]] = {
@@ -235,8 +258,30 @@ class VisionChatClient(Protocol):
     ) -> ChatResult: ...
 
 
+class RasterizeError(Exception):
+    """A document whose pages cannot be turned into images, and the reason why.
+
+    Typed rather than bare, because the batch reads an unhandled raise as a
+    failed document, this codebase treats a failed document as transient, and
+    every `--resume` would then rasterize the same hostile file again forever.
+    """
+
+    def __init__(self, kind: IngestErrorKind, detail: str) -> None:
+        super().__init__(detail)
+        self.kind = kind
+        self.detail = detail
+
+
 def rasterize_pdf(path: Path, *, dpi: int = VISION_DPI) -> tuple[PageImage, ...]:
     """Every page as a PNG, capped on its longest edge to bound image tokens.
+
+    Three ceilings are checked before any bitmap exists: the bytes on disk, the
+    page count, and the pixels one page will occupy at dpi, the last read off
+    the MediaBox because a 333 byte file may legally declare a page that costs
+    gigabytes to render. A document over any of them is refused whole rather
+    than served from the pages that fit: a statement extracted from part of
+    itself is a wrong answer that scores as missed lines, while a refusal is a
+    typed fact the review queue can show and the checkpoint can call final.
 
     PDFium is not thread safe. Batch extraction runs documents concurrently and
     this is a sync call, so today the event loop is the only thing keeping two
@@ -244,15 +289,43 @@ def rasterize_pdf(path: Path, *, dpi: int = VISION_DPI) -> tuple[PageImage, ...]
     put two threads inside the library. The lock costs nothing while it is
     uncontended and removes the trap.
     """
-    with pdfium.open_document(path) as document:
-        # PNG bytes, so nothing leaves this scope pointing at PDFium's memory.
-        return tuple(
-            PageImage(
-                page=index,
-                png_bytes=_png_bytes(document[index].render(scale=dpi / PDF_POINTS_PER_INCH)),
-            )
-            for index in range(len(document))
+    size = _file_size(path)
+    if size > MAX_FILE_BYTES:
+        raise RasterizeError(
+            IngestErrorKind.TOO_LARGE, f"file is {size} bytes, over the {MAX_FILE_BYTES} byte limit"
         )
+    try:
+        with pdfium.open_document(path) as document:
+            pages = len(document)
+            if pages > MAX_PAGES:
+                raise RasterizeError(
+                    IngestErrorKind.TOO_LARGE,
+                    f"pdf carries {pages} pages, over the {MAX_PAGES} page limit",
+                )
+            # PNG bytes, so nothing leaves this scope pointing at PDFium's memory.
+            return tuple(_page_image(document[index], index, dpi) for index in range(pages))
+    except (pdfium.PdfiumError, OSError) as error:
+        raise RasterizeError(IngestErrorKind.TRUNCATED, f"unreadable pdf: {error}") from error
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError as error:
+        raise RasterizeError(IngestErrorKind.UNRECOGNIZED, f"unreadable file: {error}") from error
+
+
+def _page_image(page: Any, index: int, dpi: int) -> PageImage:
+    """One page rendered, refused first if its MediaBox asks for too many pixels."""
+    width, height = page.get_size()
+    scale = dpi / PDF_POINTS_PER_INCH
+    pixels = round(width * scale) * round(height * scale)
+    if pixels > MAX_PAGE_PIXELS:
+        raise RasterizeError(
+            IngestErrorKind.TOO_LARGE,
+            f"page {index} renders to {pixels} pixels, over the {MAX_PAGE_PIXELS} pixel limit",
+        )
+    return PageImage(page=index, png_bytes=_png_bytes(page.render(scale=scale)))
 
 
 class VisionExtractor:
@@ -374,7 +447,7 @@ class VisionExtractor:
                 return model.model_validate_json(result.content)
             except ValidationError as error:
                 _LOGGER.warning("%s attempt %d failed schema validation", doc_id, attempt)
-                messages = [*messages, {"role": USER_ROLE, "content": _repair_prompt(str(error))}]
+                messages = [*messages, {"role": USER_ROLE, "content": _repair_prompt(error)}]
         self.structured_output_failures += 1
         return None
 
@@ -403,11 +476,26 @@ def _user_prompt(doc_type: DocType, field_order: Sequence[FieldName]) -> str:
     return f"Extract every field and every line item from this {doc_type.value.replace('_', ' ')}."
 
 
-def _repair_prompt(error: str) -> str:
+def _repair_prompt(error: ValidationError) -> str:
+    """Where the schema was broken, never what was in the slot that broke it.
+
+    str(ValidationError) quotes the offending input, and that input is model
+    output shaped by whatever the page printed. Reflecting it into the next turn
+    would be the one way document content could reach the prompt as text, so the
+    location and the rule are sent and the value is dropped.
+    """
+    faults = "\n".join(
+        f"{_location(item['loc'])}: {item['msg']}"
+        for item in error.errors(include_url=False, include_context=False, include_input=False)
+    )
     return (
         "The previous answer did not match the schema. Return corrected JSON only."
-        f" Validation error:\n{error}"
+        f" Validation errors:\n{faults}"
     )
+
+
+def _location(loc: tuple[int | str, ...]) -> str:
+    return ".".join(str(part) for part in loc)
 
 
 def _response_format(model: type[VisionDocument]) -> dict[str, Any]:
@@ -429,6 +517,15 @@ def _seed(doc_id: str) -> int:
 
 
 def _png_bytes(bitmap: Any) -> bytes:
+    """The rendered page as PNG, shrunk to the edge cap. Not a memory bound.
+
+    PIL's decompression bomb guard does not run on this path: to_pil wraps
+    PDFium's own buffer through Image.frombuffer, and MAX_IMAGE_PIXELS is
+    checked only when PIL decodes a file it opened. The resize below happens
+    after the full bitmap already exists, so it bounds the image tokens a page
+    costs and nothing else. Memory is bounded by MAX_PAGE_PIXELS, before the
+    render.
+    """
     image = bitmap.to_pil()
     longest = max(image.size)
     if longest > MAX_IMAGE_EDGE_PX:

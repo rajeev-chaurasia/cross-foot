@@ -20,12 +20,13 @@ from __future__ import annotations
 import os
 import threading
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 from crossfoot import pdfium
 from crossfoot.api.dto import CropUnavailableReason
-from crossfoot.constants import CropKind
+from crossfoot.constants import MAX_PAGE_PIXELS, CropKind
 from crossfoot.db.crops import CropSource
 from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
 from crossfoot.extraction import crops
@@ -40,6 +41,7 @@ PDF_POINTS_PER_INCH = 72
 
 MISSING_SOURCE_DETAIL = "the dataset holds no file at {file_path}"
 MISSING_PAGE_DETAIL = "page {page} is not in a document of {pages} pages"
+OVERSIZE_PAGE_DETAIL = "page {page} renders to {pixels} pixels, over the {limit} pixel limit"
 # A row_position counts the rows visible on one page. Which page a model was
 # looking at is not recorded, so on a document of several pages the number
 # indexes nothing and the whole page is the only honest answer.
@@ -97,6 +99,11 @@ def _page_image(path: Path, page: int) -> tuple[crops.Image, int]:
     whole document scope is serialized by `pdfium.open_document`. The copy into
     numpy happens inside that scope too: the rendered bitmap is memory PDFium
     owns, and the crop helpers run on this array long after it is closed.
+
+    The pixel budget is read off the MediaBox before the render, because
+    fit_to_served_edge only shrinks an image that already exists and a page may
+    legally declare 200 inches a side. A page over the budget is unreadable in
+    the same sense a damaged one is: its pixels cannot be produced here.
     """
     try:
         with pdfium.open_document(path) as document:
@@ -106,7 +113,9 @@ def _page_image(path: Path, page: int) -> tuple[crops.Image, int]:
                     CropUnavailableReason.PAGE_MISSING,
                     MISSING_PAGE_DETAIL.format(page=page, pages=pages),
                 )
-            rendered = document[page].render(scale=REVIEW_CROP_DPI / PDF_POINTS_PER_INCH).to_pil()
+            scale = REVIEW_CROP_DPI / PDF_POINTS_PER_INCH
+            _refuse_oversize_page(document[page], page, scale)
+            rendered = document[page].render(scale=scale).to_pil()
             # cv2 encodes BGR, so the channel order is flipped exactly once, here.
             image: crops.Image = np.ascontiguousarray(
                 np.asarray(rendered.convert("RGB"), dtype=np.uint8)[:, :, ::-1]
@@ -114,6 +123,17 @@ def _page_image(path: Path, page: int) -> tuple[crops.Image, int]:
     except (pdfium.PdfiumError, OSError) as error:
         raise CropSourceError(CropUnavailableReason.SOURCE_UNREADABLE, str(error)) from error
     return image, pages
+
+
+def _refuse_oversize_page(page: Any, index: int, scale: float) -> None:
+    """Refuse a page whose declared size would allocate more than the budget allows."""
+    width, height = page.get_size()
+    pixels = round(width * scale) * round(height * scale)
+    if pixels > MAX_PAGE_PIXELS:
+        raise CropSourceError(
+            CropUnavailableReason.SOURCE_UNREADABLE,
+            OVERSIZE_PAGE_DETAIL.format(page=index, pixels=pixels, limit=MAX_PAGE_PIXELS),
+        )
 
 
 def _publish(destination: Path, payload: bytes) -> None:

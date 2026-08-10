@@ -8,10 +8,12 @@ and turning a numeric cell into exact integer cents.
 The tabular baseline is imported rather than restated. Header matching, value
 parsing, the totals rule, and the resource ceilings are the CSV extractor's, so a
 spreadsheet and a delimited export of the same statement are read by one set of
-rules and cannot drift apart. Only the reader and the route differ.
+rules and cannot drift apart. Only the reader, the route, and the two ceilings
+that belong to a zip container rather than to a delimited file differ.
 """
 
 import logging
+import zipfile
 from collections import deque
 from collections.abc import Iterator, Sequence
 from datetime import date, datetime
@@ -69,9 +71,17 @@ _HEADER_FRAGMENT_JOIN = " "
 # reproduced; the rest of the Excel format language is the library's business.
 _CURRENCY_FORMAT_MARKER = "$"
 
+# Cells in one row this module will copy out of the sheet. A statement export
+# prints tens of columns and Excel itself stops at 16384, so a wider row is not
+# a statement; measured, one row of 400,000 inline cells took a 46 kB file to
+# 440 MB. Rows and cell characters were already capped and columns were not.
+# What this bounds is this module's own copy: openpyxl builds the row before
+# yielding it, so the refusal is typed and terminal rather than free.
+MAX_ROW_COLUMNS = 1_024
 
-class _CellTooLargeError(Exception):
-    """One cell over the shared cell ceiling, raised so the document is refused."""
+
+class _OversizeError(Exception):
+    """Input past one of the shared ceilings, raised so the document is refused."""
 
 
 def extract_xlsx(path: Path, doc_id: str) -> ExtractedDocument:
@@ -80,13 +90,22 @@ def extract_xlsx(path: Path, doc_id: str) -> ExtractedDocument:
     if size is None:
         return _unprocessable(path, doc_id, IngestErrorKind.UNRECOGNIZED, "unreadable file")
     if size > MAX_FILE_BYTES:
-        # Checked by stat, so a decompression bomb is refused before openpyxl
-        # opens the container and inflates whatever is inside it.
+        # stat is the compressed size, so this bounds the bytes on disk and
+        # nothing about what they expand into. The inflated total below is the
+        # check that bounds what openpyxl will be asked to hold.
         return _unprocessable(
             path,
             doc_id,
             IngestErrorKind.TOO_LARGE,
             f"file is {size} bytes, over the {MAX_FILE_BYTES} byte limit",
+        )
+    inflated = _inflated_bytes(path)
+    if inflated is not None and inflated > MAX_FILE_BYTES:
+        return _unprocessable(
+            path,
+            doc_id,
+            IngestErrorKind.TOO_LARGE,
+            f"workbook inflates to {inflated} bytes, over the {MAX_FILE_BYTES} byte limit",
         )
     try:
         # read_only streams the sheet instead of materializing it; data_only
@@ -99,7 +118,7 @@ def extract_xlsx(path: Path, doc_id: str) -> ExtractedDocument:
         )
     try:
         column_map, line_fields, over_row_cap = _read_sheet(book, doc_id)
-    except _CellTooLargeError as error:
+    except _OversizeError as error:
         return _unprocessable(path, doc_id, IngestErrorKind.TOO_LARGE, str(error))
     except Exception as error:  # one workbook must not end a run, whatever it holds
         _LOGGER.warning("%s failed to read: %s", doc_id, error)
@@ -138,6 +157,23 @@ def _read_sheet(
     return column_map, line_fields, over_row_cap
 
 
+def _inflated_bytes(path: Path) -> int | None:
+    """Uncompressed total the container declares, or None when it is not a zip.
+
+    Read from the central directory, so nothing is decompressed to learn it. The
+    sizes are the file's own declaration and a hostile writer may understate
+    them; what an understated header buys is then bounded by MAX_DATA_ROWS,
+    MAX_ROW_COLUMNS and MAX_CELL_CHARS. A file that does not read as a zip is
+    left to load_workbook, which refuses it as unrecognizable a moment later.
+    """
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return sum(info.file_size for info in archive.infolist())
+    except (OSError, zipfile.BadZipFile) as error:
+        _LOGGER.warning("cannot read %s as a zip container: %s", path, error)
+        return None
+
+
 def _close(book: Any) -> None:
     """read_only holds the container open, and Windows blocks callers until it closes."""
     try:
@@ -156,6 +192,10 @@ def _sheet_rows(book: Any) -> Iterator[list[str]]:
     if not sheets:
         return
     for row in sheets[0].iter_rows():
+        # Checked before the comprehension runs, so a hostile row is never
+        # copied into a second list of the same width.
+        if len(row) > MAX_ROW_COLUMNS:
+            raise _OversizeError(f"a row holds {len(row)} cells, over {MAX_ROW_COLUMNS}")
         yield [_cell_text(cell.value, getattr(cell, "number_format", "")) for cell in row]
 
 
@@ -181,7 +221,7 @@ def _cell_text(value: object, number_format: str) -> str:
     else:
         text = str(value)
     if len(text) > MAX_CELL_CHARS:
-        raise _CellTooLargeError(f"a cell holds {len(text)} characters, over {MAX_CELL_CHARS}")
+        raise _OversizeError(f"a cell holds {len(text)} characters, over {MAX_CELL_CHARS}")
     # Stripped here so nothing downstream, header matching included, sees a NUL.
     return strip_control_chars(text)
 
