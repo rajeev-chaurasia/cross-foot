@@ -424,6 +424,10 @@ def statement_from_extraction(
         line for line in (_line(doc, line_no) for line_no in _line_numbers(doc)) if line is not None
     )
     subtotal = sum(line.amount_cents for line in lines)
+    # A printed total of zero is a reading, not a missing reading. Falling back to the
+    # sum of the lines here would repair the one case the crossfoot check exists to
+    # catch, a total that contradicts the lines it sits under.
+    extracted_total = _header_cents(doc, FieldName.TOTAL)
     return StatementDoc(
         doc_id=doc.doc_id,
         dealer_id=truth.dealer_id,
@@ -435,7 +439,7 @@ def statement_from_extraction(
         period_end=truth.period_end,
         previous_balance_cents=_header_cents(doc, FieldName.PREVIOUS_BALANCE),
         subtotal_cents=subtotal,
-        total_cents=_header_cents(doc, FieldName.TOTAL) or subtotal,
+        total_cents=subtotal if extracted_total is None else extracted_total,
         lines=lines,
     )
 
