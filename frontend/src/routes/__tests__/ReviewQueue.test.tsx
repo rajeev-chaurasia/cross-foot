@@ -8,6 +8,7 @@ import {
   LONG_QUEUE_TOTAL,
   QUEUE,
   SUMMARY,
+  TABULAR_QUEUE,
   VIN_ITEM,
   longQueuePage,
 } from '../../test/fixtures'
@@ -77,13 +78,40 @@ async function typeReviewer(name: string): Promise<void> {
 }
 
 describe('the review queue', () => {
-  it('leads with the share of fields a human has to look at', async () => {
+  it('leads with the count of fields a human has to look at', async () => {
     installApi(routes())
     renderWithProviders(<ReviewQueue />)
-    expect(await screen.findByText('Reviewing 19.6% of fields')).toBeTruthy()
-    expect(
-      await screen.findByText(/490 of 2,500 extracted fields need a human/),
-    ).toBeTruthy()
+    expect(await screen.findByText('490 fields waiting for a reviewer')).toBeTruthy()
+    expect(await screen.findByText(/19.6% of the 2,500 fields in this database/)).toBeTruthy()
+  })
+
+  it('says the share is this database now and not the published review rate', async () => {
+    // The two used to read alike by coincidence, so a reader comparing the
+    // screen with the README concluded they agreed. Saying which is which is
+    // the whole fix.
+    installApi(routes())
+    renderWithProviders(<ReviewQueue />)
+    expect(await screen.findByText(/every split included/)).toBeTruthy()
+    expect(await screen.findByText(/it falls as reviewing happens/)).toBeTruthy()
+    expect(await screen.findByText(/not the published review rate/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'metrics page' }).getAttribute('href')).toBe(
+      '/metrics',
+    )
+  })
+
+  it('prints the share the API divided rather than dividing two counts itself', async () => {
+    // 490 over 2500 is 19.6 percent either way, so the fixture sends a share the
+    // counts do not produce: anything doing the arithmetic here prints 19.6.
+    installApi(
+      routes([
+        {
+          match: /\/api\/stats\/summary/,
+          body: { ...SUMMARY, review_queue_share: 0.271 },
+        },
+      ]),
+    )
+    renderWithProviders(<ReviewQueue />)
+    expect(await screen.findByText(/27.1% of the 2,500 fields in this database/)).toBeTruthy()
   })
 
   it('opens on the least trusted field beside the pixels it came from', async () => {
@@ -392,11 +420,38 @@ describe('the source crop', () => {
     expect(await within(crop).findByText('The value itself.')).toBeTruthy()
   })
 
+  it('states plainly that a tabular format has no page image', async () => {
+    // 973 fields in the built database are CSV fields, and every one of them
+    // used to answer with a PDFium data format error, which reads as a corrupt
+    // statement. The file is healthy; it simply has no pages.
+    installApi(routes([{ match: /\/api\/review\/queue/, body: TABULAR_QUEUE }]))
+    renderWithProviders(<ReviewQueue />)
+    await screen.findByRole('heading', { name: 'Line amount', level: 2 })
+    const crop = screen.getByRole('region', { name: 'Source crop' })
+
+    expect(await within(crop).findByText('This format has no page image')).toBeTruthy()
+    expect(within(crop).getByText(/read from rows of data rather than from a printed page/))
+      .toBeTruthy()
+    expect(within(crop).queryByText(/not available/)).toBeNull()
+  })
+
+  it('never asks for a picture of a format that has none', async () => {
+    const api = installApi(routes([{ match: /\/api\/review\/queue/, body: TABULAR_QUEUE }]))
+    renderWithProviders(<ReviewQueue />)
+    const crop = screen.getByRole('region', { name: 'Source crop' })
+    await within(crop).findByText('This format has no page image')
+
+    expect(api.calls.some((call) => call.url.includes('/api/crops/'))).toBe(false)
+    expect(within(crop).queryByRole('img')).toBeNull()
+    expect(within(crop).queryByRole('link', { name: 'Open in a new tab' })).toBeNull()
+  })
+
   it('offers a zoom and a full size link so the pixels can actually be read', async () => {
     installApi(routes())
     renderWithProviders(<ReviewQueue />)
     await screen.findByRole('heading', { name: 'VIN', level: 2 })
     const crop = screen.getByRole('region', { name: 'Source crop' })
+    await within(crop).findByText('The whole page.')
 
     const zoom = within(crop).getByRole('button', { name: 'Zoom to full size' })
     expect(zoom.getAttribute('aria-pressed')).toBe('false')

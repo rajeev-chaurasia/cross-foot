@@ -165,6 +165,33 @@ was named here.
   not an error. A path carrying a suffix and any path under the API prefix keep their
   404, since answering either with HTML hides the miss.
 
+## Clarifications (binding, added 2026-08-10 after end to end review)
+
+Places where a number or a caption said more than it knew.
+
+- `GET /api/stats/summary` gains `review_queue_share`, the queue depth over the fields
+  extracted, divided by the API rather than the browser. It reads the whole database,
+  every split included, and it falls as reviewers work. It is not the review rate a
+  scorecard publishes, which is measured on the held out split at a fixed threshold and
+  does not move. The two are never presented as the same figure.
+- `GET /api/review/items/{field_id}` publishes `crop_kind` and `crop_unavailable_reason`,
+  exactly one of them non null. `crop_kind` is what the render that produced the served
+  crop settled on, never the extractor's guess, so the caption always describes the bytes
+  `crop_url` will serve.
+- `CropUnavailableReason` gains `no_page_image`, for a source that has rows rather than
+  pages. It is decided before any PDFium call, because a healthy spreadsheet reported as
+  an unreadable document is a false alarm a reviewer has to chase.
+- The database gains `rendered_crops(field_id, crop_kind)`, written only by the render.
+  Absence means the crop has not been cut yet, whatever sits on disk, so a rebuilt
+  `fields` table cannot leave a stale caption over a cached image. `crossfoot ingest`
+  does not touch it.
+- `GET /api/metrics` serves the newest committed scorecard carrying field accuracy,
+  calibration, or a threshold sweep. A reconciliation run commits a scorecard holding
+  only reconciliation cells, and a full pipeline run ends with reconciliation, so
+  newest by timestamp alone serves a scorecard with nothing the page can draw.
+- The rule that every number comes from the database or a committed scorecard also
+  forbids dividing two published counts in the browser.
+
 ## Determinism and honesty rules
 
 - The review queue order is a total order: ascending confidence, then field_id. Two

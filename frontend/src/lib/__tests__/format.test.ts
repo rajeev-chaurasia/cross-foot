@@ -6,7 +6,6 @@ import {
   formatConfidence,
   formatMicroUsd,
   formatRate,
-  formatShare,
   formatThreshold,
   humanize,
   pageRangeLabel,
@@ -49,14 +48,6 @@ describe('rates and shares', () => {
   it('formats a published rate', () => {
     expect(formatRate(0.804)).toBe('80.4%')
     expect(formatRate(0.9964, 2)).toBe('99.64%')
-  })
-
-  it('puts a queue depth over the extracted field count', () => {
-    expect(formatShare(490, 2_500)).toBe('19.6%')
-  })
-
-  it('refuses to divide by an empty corpus', () => {
-    expect(formatShare(0, 0)).toBe('-')
   })
 
   // A confidence used to print as `0.25` beside three panels of percentages.

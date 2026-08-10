@@ -59,6 +59,11 @@ INSERT OR REPLACE INTO documents (
 ) VALUES (?, ?, ?, ?, ?, ?, ?)
 """
 
+# crop_kind here is the extractor's own record of how it located a value, which
+# is what decides whether the stored corners are worth reading. What a review
+# crop was actually cut to lives in rendered_crops, which this rebuild does not
+# touch: that row was written with the PNG still on disk, and the two stay
+# together or are settled together on the next request.
 _INSERT_FIELD = """
 INSERT OR REPLACE INTO fields (
     field_id, doc_id, line_no, name, family, raw_text, value,

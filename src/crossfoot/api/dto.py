@@ -130,32 +130,6 @@ class DocumentSummary(BaseModel):
         )
 
 
-class ReviewItemDetail(ReviewItem):
-    """The queue item plus everything a reviewer needs to judge it in one screen."""
-
-    # How the value was located on the page, so the crop panel can caption what
-    # the reader is looking at instead of leaving them to guess whether a whole
-    # page means "here it is" or "we could not find it". The extractor writes it
-    # first and the renderer overwrites it with what it actually cut, so a field
-    # nobody has looked at yet reads as the fallback it would fall back to.
-    crop_kind: CropKind
-    signals: FieldSignals
-    document: DocumentSummary
-    neighbors: tuple[ReviewItem, ...]
-
-    @classmethod
-    def build(
-        cls, row: sqlite3.Row, *, document: sqlite3.Row, neighbors: list[sqlite3.Row]
-    ) -> ReviewItemDetail:
-        return cls(
-            **ReviewItem.from_row(row).model_dump(),
-            crop_kind=CropKind(row["crop_kind"]),
-            signals=FieldSignals.model_validate_json(str(row["signals"])),
-            document=DocumentSummary.from_row(document),
-            neighbors=tuple(ReviewItem.from_row(neighbor) for neighbor in neighbors),
-        )
-
-
 class CropUnavailableReason(StrEnum):
     """Why a field that exists still has no pixels beside it."""
 
@@ -163,6 +137,10 @@ class CropUnavailableReason(StrEnum):
     SOURCE_UNREADABLE = "source_unreadable"
     SOURCE_UNREACHABLE = "source_unreachable"
     PAGE_MISSING = "page_missing"
+    # Not a fault of any kind: a spreadsheet has rows, not pages. Reporting a
+    # healthy CSV as unreadable told a reviewer their file was corrupt, so a
+    # format that was never going to have pixels says so in its own word.
+    NO_PAGE_IMAGE = "no_page_image"
 
 
 class CropUnavailable(BaseModel):
@@ -179,6 +157,41 @@ class CropUnavailable(BaseModel):
     field_id: str
     reason: CropUnavailableReason
     detail: str
+
+
+class ReviewItemDetail(ReviewItem):
+    """The queue item plus everything a reviewer needs to judge it in one screen."""
+
+    # How the value was located on the page, so the crop panel can caption what
+    # the reader is looking at instead of leaving them to guess whether a whole
+    # page means "here it is" or "we could not find it". This is the render's own
+    # answer, never the extractor's guess in fields.crop_kind, because the caption
+    # has to describe the picture underneath it. Null when there is no picture,
+    # and then crop_unavailable_reason says why. Exactly one of the two is set.
+    crop_kind: CropKind | None
+    crop_unavailable_reason: CropUnavailableReason | None
+    signals: FieldSignals
+    document: DocumentSummary
+    neighbors: tuple[ReviewItem, ...]
+
+    @classmethod
+    def build(
+        cls,
+        row: sqlite3.Row,
+        *,
+        document: sqlite3.Row,
+        neighbors: list[sqlite3.Row],
+        crop_kind: CropKind | None,
+        crop_unavailable_reason: CropUnavailableReason | None,
+    ) -> ReviewItemDetail:
+        return cls(
+            **ReviewItem.from_row(row).model_dump(),
+            crop_kind=crop_kind,
+            crop_unavailable_reason=crop_unavailable_reason,
+            signals=FieldSignals.model_validate_json(str(row["signals"])),
+            document=DocumentSummary.from_row(document),
+            neighbors=tuple(ReviewItem.from_row(neighbor) for neighbor in neighbors),
+        )
 
 
 class CorrectionRequest(BaseModel):
@@ -223,7 +236,15 @@ class ResolutionRequest(BaseModel):
 
 
 class Summary(BaseModel):
-    """The tile above the queue. Every number is counted in SQL, never in the UI."""
+    """The tile above the queue. Every number is counted in SQL, never in the UI.
+
+    Every count here is over the whole database, every split included, and it is
+    a reading taken now rather than a result. `review_queue_share` in particular
+    falls each time a reviewer accepts a field, which is exactly what makes it a
+    different quantity from the review rate a scorecard publishes: that one is
+    measured on the held out split at a fixed threshold and does not move. The
+    two are never to be printed as though they were the same figure.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -231,6 +252,9 @@ class Summary(BaseModel):
     fields_extracted: int
     auto_accept_rate: float
     review_queue_depth: int
+    # The depth as a share of every extracted field, so the queue never divides
+    # two counts in the browser to get it.
+    review_queue_share: float
     open_exception_count: int
     gross_dollars_at_risk_cents: int
     cost_per_document_microusd: int
@@ -239,6 +263,7 @@ class Summary(BaseModel):
     def from_row(cls, row: sqlite3.Row) -> Summary:
         fields_extracted = int(row["fields_extracted"])
         documents_processed = int(row["documents_processed"])
+        review_queue_depth = int(row["review_queue_depth"])
         list_price = int(row["list_price_microusd"])
         return cls(
             documents_processed=documents_processed,
@@ -246,7 +271,8 @@ class Summary(BaseModel):
             auto_accept_rate=(
                 int(row["auto_accepted"]) / fields_extracted if fields_extracted else 0.0
             ),
-            review_queue_depth=int(row["review_queue_depth"]),
+            review_queue_depth=review_queue_depth,
+            review_queue_share=(review_queue_depth / fields_extracted if fields_extracted else 0.0),
             open_exception_count=int(row["open_exception_count"]),
             gross_dollars_at_risk_cents=int(row["gross_dollars_at_risk_cents"]),
             cost_per_document_microusd=(

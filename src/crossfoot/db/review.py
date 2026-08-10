@@ -50,9 +50,11 @@ _ITEM_COLUMNS = f"""
     {_EFFECTIVE_VALUE.format(alias="f")} AS value,
     f.confidence AS confidence,
     f.status AS status,
-    f.crop_kind AS crop_kind,
     f.signals AS signals
 """
+# fields.crop_kind is deliberately absent. It is the extractor's guess at how a
+# value could be found, not a description of the crop that was served, so a
+# reader of these rows must never be able to caption a picture with it.
 
 # An unset filter means no filter, so the unfiltered queue is every field.
 _FILTERS = """

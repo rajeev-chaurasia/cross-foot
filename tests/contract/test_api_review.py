@@ -15,7 +15,9 @@ binding in the phase 2 sense:
         query: status, family, tier, limit, offset
         unset filters mean no filter, so the unfiltered queue is every field
         ordered least trusted first, and `status=needs_review` narrows it
-    GET /api/review/items/{field_id} -> item plus signals, document, neighbors
+    GET /api/review/items/{field_id} -> item plus signals, document, neighbors,
+        and the crop caption: crop_kind when there is a picture,
+        crop_unavailable_reason when there is not, never both and never neither
     POST /api/review/items/{field_id}/accept -> the updated item
     POST /api/review/items/{field_id}/correct {"value", "reviewer"} -> the item
 
@@ -458,6 +460,17 @@ def test_item_detail_returns_the_neighbouring_fields_on_the_same_line(
         "fld-a-0003",
         "fld-a-0004",
     ]
+
+
+def test_item_detail_captions_the_crop_with_exactly_one_of_the_two_answers(
+    client: TestClient,
+) -> None:
+    # These fixtures name documents no dataset holds, so every one of them is a
+    # field with no picture. What is pinned here is the shape: a caption or a
+    # reason, never a kind that no render produced.
+    for field_id in (AMOUNT_FIELD, DATE_FIELD, ACCEPT_FIELD):
+        payload = detail(client, field_id)
+        assert (payload["crop_kind"] is None) != (payload["crop_unavailable_reason"] is None)
 
 
 def test_item_detail_carries_the_raw_text_and_canonical_value(client: TestClient) -> None:

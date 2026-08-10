@@ -75,6 +75,20 @@ export type DocType =
  */
 export type CropKind = 'exact_bbox' | 'row_band' | 'full_page'
 
+/**
+ * Why a field that exists has no picture beside it.
+ *
+ * `no_page_image` is the only one that is not a fault. A CSV or a spreadsheet
+ * has rows rather than pages, so there was never an image to serve, and saying
+ * so is a statement about the format rather than a report of a damaged file.
+ */
+export type CropUnavailableReason =
+  | 'source_missing'
+  | 'source_unreadable'
+  | 'source_unreachable'
+  | 'page_missing'
+  | 'no_page_image'
+
 export type SplitName = 'train' | 'calibration' | 'test'
 
 export type ExceptionType =
@@ -127,11 +141,21 @@ export const EXCEPTION_STATUSES: readonly ExceptionStatus[] = ['open', 'resolved
 
 // GET /api/stats/summary
 
+/**
+ * The state of this database right now, every split included.
+ *
+ * Nothing here is a published result. `review_queue_share` in particular falls
+ * every time a reviewer accepts a field, so it is not the review rate a
+ * scorecard reports: that one is measured on the held out split at a fixed
+ * threshold and does not move. The two must never be printed as one figure.
+ */
 export interface StatsSummary {
   documents_processed: number
   fields_extracted: number
   auto_accept_rate: number
   review_queue_depth: number
+  /** The queue depth over every extracted field, divided by the API, not here. */
+  review_queue_share: number
   open_exception_count: number
   gross_dollars_at_risk_cents: number
   cost_per_document_microusd: number
@@ -175,8 +199,13 @@ export interface DocumentContext {
 }
 
 export interface ReviewItemDetail extends ReviewItem {
-  /** Which of the three ways the served crop was cut. */
-  crop_kind: CropKind
+  /**
+   * Which of the three ways the served crop was cut, settled by the render that
+   * cut it. Null when there is no picture, and then the reason says why.
+   * Exactly one of the two is set.
+   */
+  crop_kind: CropKind | null
+  crop_unavailable_reason: CropUnavailableReason | null
   signals: FieldSignals
   document: DocumentContext
   neighbors: ReviewItem[]

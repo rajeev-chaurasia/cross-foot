@@ -3,9 +3,16 @@
  *
  * Everything on this screen is a number the API published. The queue order is
  * the API's total order (ascending confidence, then field id), the confidence is
- * the API's, the queue depth and the extracted field count come from
- * GET /api/stats/summary, and the page counts come from the `total` the queue
- * route returns. Nothing here computes an accuracy.
+ * the API's, the queue depth and the share of fields it represents come from
+ * GET /api/stats/summary already divided, and the page counts come from the
+ * `total` the queue route returns. Nothing here computes an accuracy, and
+ * nothing here divides one published count by another.
+ *
+ * The share this page shows is the queue as it stands across every split, and it
+ * falls as reviewing happens. It is not the review rate the project publishes,
+ * which is a held out figure at a fixed threshold and belongs on the metrics
+ * page beside the split it was measured on. The two used to read alike by
+ * coincidence, which is worse than reading differently.
  *
  * Two things the API knows are deliberately kept off this screen. The document's
  * quality tier is dataset generator metadata: no statement a dealership receives
@@ -17,6 +24,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { useReviewItem, useReviewQueue, useReviewWrite, useSummary } from '../api/queries'
 import type { FieldFamily, ReviewItem, ReviewStatus, ReviewQueueParams } from '../api/types'
@@ -25,9 +33,9 @@ import { Pager } from '../components/Pager'
 import { SignalBreakdown } from '../components/SignalBreakdown'
 import { ShortcutsBar, ShortcutsOverlay } from '../components/Shortcuts'
 import { BUTTON, CARD, FOCUS_RING, KBD, PRIMARY_BUTTON, SELECT } from '../components/ui'
-import { cropCaption } from '../lib/crops'
+import { cropCaption, unavailableCaption } from '../lib/crops'
 import { describeDocument, describeField, lineLabel } from '../lib/documents'
-import { formatConfidence, formatRate, formatShare, humanize } from '../lib/format'
+import { formatConfidence, formatRate, humanize } from '../lib/format'
 
 const PAGE_SIZE = 50
 
@@ -252,7 +260,15 @@ export function ReviewQueue() {
         `Confidence ${formatConfidence(current.confidence)}. Status ${humanize(current.status)}.`
 
   const sourceDoc = current === undefined ? undefined : describeDocument(current.doc_id)
-  const caption = detail.data === undefined ? undefined : cropCaption(detail.data.crop_kind)
+  // The caption and the picture are one answer the API gives: the detail route
+  // settles how the crop was cut, or says there is no crop to ask for. The image
+  // is therefore not requested until that answer arrives, which is what keeps a
+  // caption from describing bytes the browser fetched independently of it.
+  const cropKind = detail.data?.crop_kind ?? null
+  const cropMissing = detail.data?.crop_unavailable_reason ?? null
+  const caption = cropKind === null ? undefined : cropCaption(cropKind)
+  const missingCaption = cropMissing === null ? undefined : unavailableCaption(cropMissing)
+  const showImage = cropKind !== null && !cropBroken
 
   return (
     <div className="space-y-4">
@@ -267,13 +283,19 @@ export function ReviewQueue() {
             <p className="mt-1 text-3xl font-semibold text-slate-900">
               {summary.data === undefined
                 ? 'Loading'
-                : `Reviewing ${formatShare(summary.data.review_queue_depth, summary.data.fields_extracted)} of fields`}
+                : `${summary.data.review_queue_depth.toLocaleString('en-US')} fields waiting for a reviewer`}
             </p>
             {summary.data !== undefined && (
               <p className="mt-1 text-sm text-slate-600">
-                {summary.data.review_queue_depth.toLocaleString('en-US')} of{' '}
-                {summary.data.fields_extracted.toLocaleString('en-US')} extracted fields need a
-                human. {formatRate(summary.data.auto_accept_rate)} were auto accepted across{' '}
+                {formatRate(summary.data.review_queue_share)} of the{' '}
+                {summary.data.fields_extracted.toLocaleString('en-US')} fields in this database,
+                every split included. This is the queue as it stands and it falls as reviewing
+                happens, so it is not the published review rate: that one is measured on the held
+                out split at a fixed threshold and is on the{' '}
+                <Link to="/metrics" className={`underline ${FOCUS_RING}`}>
+                  metrics page
+                </Link>
+                . {formatRate(summary.data.auto_accept_rate)} were auto accepted across{' '}
                 {summary.data.documents_processed.toLocaleString('en-US')} documents.
               </p>
             )}
@@ -435,7 +457,7 @@ export function ReviewQueue() {
             <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
               Source crop
             </h2>
-            {current !== undefined && !cropBroken && (
+            {current !== undefined && showImage && (
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -472,13 +494,25 @@ export function ReviewQueue() {
                   row rather than a thumbnail's worth of it. */}
               <div
                 className={`mt-2 h-[30rem] rounded border border-slate-200 bg-slate-50 p-2 xl:h-auto xl:min-h-[34rem] xl:flex-1 ${
-                  cropZoomed ? 'overflow-auto' : 'flex items-center justify-center'
+                  cropZoomed && showImage ? 'overflow-auto' : 'flex items-center justify-center'
                 }`}
               >
-                {cropBroken ? (
+                {missingCaption !== undefined ? (
+                  // A statement about the source, not an error: a format with no
+                  // pages was never going to have a picture, and a reviewer told
+                  // otherwise goes looking for damage that is not there.
+                  <div className="p-6 text-center">
+                    <p className="text-sm font-medium text-slate-700">
+                      {missingCaption.headline}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">{missingCaption.detail}</p>
+                  </div>
+                ) : cropBroken ? (
                   <p className="p-6 text-center text-sm text-slate-500">
                     The crop for this field is not available.
                   </p>
+                ) : cropKind === null ? (
+                  <p className="p-6 text-center text-sm text-slate-500">Loading the crop.</p>
                 ) : (
                   <img
                     src={current.crop_url}

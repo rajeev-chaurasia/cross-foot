@@ -8,6 +8,7 @@ a file with a run id on it.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
@@ -50,7 +51,22 @@ def metrics(paths: Paths) -> MetricsPayload:
 
 
 def latest_scorecard(scorecards_dir: Path) -> Scorecard | None:
-    """The newest scorecard by the time it was written, or None when none is committed."""
+    """The newest scorecard this page can publish, or None when none is committed.
+
+    A reconciliation run commits a scorecard too, and it carries only its recon
+    cells: no field accuracy, no calibration, no sweep. A full pipeline run ends
+    with reconciliation, so taking the newest file outright published a metrics
+    page whose every section read "this scorecard published none" and left the
+    held out result nowhere on the screen. A scorecard carrying none of the three
+    sections this route serves is passed over for the newest one that does, and
+    stands in only when it is all there is.
+    """
+    scorecards = _committed(scorecards_dir)
+    evaluation = _newest(card for card in scorecards if _publishes_an_evaluation(card))
+    return _newest(scorecards) if evaluation is None else evaluation
+
+
+def _committed(scorecards_dir: Path) -> list[Scorecard]:
     scorecards: list[Scorecard] = []
     for path in sorted(scorecards_dir.glob(f"*/{SCORECARD_FILENAME}")):
         try:
@@ -59,4 +75,14 @@ def latest_scorecard(scorecards_dir: Path) -> Scorecard | None:
             # A scorecard written before a schema change is not a reason to lose
             # the metrics page; it is a reason to stop publishing that one.
             _LOGGER.warning("ignoring unreadable scorecard %s", path)
+    return scorecards
+
+
+def _publishes_an_evaluation(card: Scorecard) -> bool:
+    """Whether a scorecard carries any of the three sections this route serves."""
+    return bool(card.field_accuracy or card.calibration or card.threshold_sweep)
+
+
+def _newest(scorecards: Iterable[Scorecard]) -> Scorecard | None:
+    """Latest by the time it was written, with the run id breaking a tie."""
     return max(scorecards, key=lambda card: (card.created_at, card.run_id), default=None)

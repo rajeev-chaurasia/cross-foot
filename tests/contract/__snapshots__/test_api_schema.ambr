@@ -138,7 +138,8 @@
             "source_missing",
             "source_unreadable",
             "source_unreachable",
-            "page_missing"
+            "page_missing",
+            "no_page_image"
           ],
           "title": "CropUnavailableReason",
           "type": "string"
@@ -843,7 +844,24 @@
               "type": "number"
             },
             "crop_kind": {
-              "$ref": "#/components/schemas/CropKind"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CropKind"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "crop_unavailable_reason": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CropUnavailableReason"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "crop_url": {
               "title": "Crop Url",
@@ -925,6 +943,7 @@
             "status",
             "crop_url",
             "crop_kind",
+            "crop_unavailable_reason",
             "signals",
             "document",
             "neighbors"
@@ -1058,7 +1077,7 @@
           "type": "string"
         },
         "Summary": {
-          "description": "The tile above the queue. Every number is counted in SQL, never in the UI.",
+          "description": "The tile above the queue. Every number is counted in SQL, never in the UI.\n\nEvery count here is over the whole database, every split included, and it is\na reading taken now rather than a result. `review_queue_share` in particular\nfalls each time a reviewer accepts a field, which is exactly what makes it a\ndifferent quantity from the review rate a scorecard publishes: that one is\nmeasured on the held out split at a fixed threshold and does not move. The\ntwo are never to be printed as though they were the same figure.",
           "properties": {
             "auto_accept_rate": {
               "title": "Auto Accept Rate",
@@ -1087,6 +1106,10 @@
             "review_queue_depth": {
               "title": "Review Queue Depth",
               "type": "integer"
+            },
+            "review_queue_share": {
+              "title": "Review Queue Share",
+              "type": "number"
             }
           },
           "required": [
@@ -1094,6 +1117,7 @@
             "fields_extracted",
             "auto_accept_rate",
             "review_queue_depth",
+            "review_queue_share",
             "open_exception_count",
             "gross_dollars_at_risk_cents",
             "cost_per_document_microusd"

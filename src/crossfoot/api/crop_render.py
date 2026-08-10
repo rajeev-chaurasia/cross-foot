@@ -12,7 +12,9 @@ data, never a trusted instruction.
 
 A source that cannot be rasterized is a fact about the document, not a bug in
 the server, so it raises CropSourceError and the route answers with a typed body
-the queue can render around.
+the queue can render around. A source that has no pages at all raises the same
+way and is not the same statement: a spreadsheet is not damaged, it simply has
+nothing to draw, and it is turned away before the file is opened.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ import numpy as np
 
 from crossfoot import pdfium
 from crossfoot.api.dto import CropUnavailableReason
-from crossfoot.constants import MAX_PAGE_PIXELS, CropKind
+from crossfoot.constants import MAX_PAGE_PIXELS, CropKind, ExtractionRoute
 from crossfoot.db.crops import CropSource
 from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
 from crossfoot.extraction import crops
@@ -42,6 +44,14 @@ PDF_POINTS_PER_INCH = 72
 MISSING_SOURCE_DETAIL = "the dataset holds no file at {file_path}"
 MISSING_PAGE_DETAIL = "page {page} is not in a document of {pages} pages"
 OVERSIZE_PAGE_DETAIL = "page {page} renders to {pixels} pixels, over the {limit} pixel limit"
+NO_PAGE_IMAGE_DETAIL = "a {route} file has rows rather than pages, so there is no page image"
+
+# Formats with no pages. A spreadsheet is not a document that failed to
+# rasterize, it is a document with nothing to rasterize, and PDFium asked to
+# parse one reports a data format error about a perfectly healthy file. The
+# check therefore stands in front of the open, not after it, and drawing a
+# picture of the rows would be an invention rather than the source.
+PAGELESS_ROUTES: frozenset[ExtractionRoute] = frozenset({ExtractionRoute.CSV, ExtractionRoute.XLSX})
 # A row_position counts the rows visible on one page. Which page a model was
 # looking at is not recorded, so on a document of several pages the number
 # indexes nothing and the whole page is the only honest answer.
@@ -66,6 +76,11 @@ def render_crop_file(*, source: CropSource, dataset_dir: Path, destination: Path
     Returns how the region was actually found, which is knowable only here: the
     row band needs the page image the extractor no longer has.
     """
+    route = source.route
+    if route is not None and route in PAGELESS_ROUTES:
+        raise CropSourceError(
+            CropUnavailableReason.NO_PAGE_IMAGE, NO_PAGE_IMAGE_DETAIL.format(route=route.value)
+        )
     image, pages = _page_image(_source_path(dataset_dir, source.file_path), source.page)
     region = crops.review_region(
         source.bbox,

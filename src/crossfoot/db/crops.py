@@ -2,11 +2,17 @@
 
 The crop route asks for both ids, so the lookup keys on both. A pair that names
 no field is the only 404 the route has; a field the database holds always has a
-document behind it, and therefore always has pixels.
+document behind it, and a document that has pages always has pixels.
 
 A vision field carries no coordinates, only the row it was read from, so it also
 carries what is needed to check that anchor: how many rows the model reported for
 the document. The renderer refuses a band unless it finds exactly that many.
+
+Two crop kinds live in this file and they are different facts. `fields.crop_kind`
+is what the extractor could tell about a value without the page in front of it,
+and it is what decides whether a stored box is worth reading. `rendered_crops` is
+what the render actually cut, which nothing but the render can know. Only the
+second may be shown to a reviewer as a caption.
 """
 
 from __future__ import annotations
@@ -14,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from crossfoot.constants import CropKind, FieldSource
+from crossfoot.constants import CropKind, ExtractionRoute, FieldSource
 from crossfoot.models.extraction import BBox
 
 # The page a field cites, for a field that cites none. A full_page crop stores
@@ -30,9 +36,17 @@ SELECT f.crop_kind AS crop_kind,
        f.y0 AS y0,
        f.x1 AS x1,
        f.y1 AS y1,
-       d.file_path AS file_path
+       d.file_path AS file_path,
+       d.route AS route
 FROM fields f JOIN documents d ON d.doc_id = f.doc_id
 WHERE f.doc_id = :doc_id AND f.field_id = :field_id
+"""
+
+_RENDERED_KIND = "SELECT crop_kind FROM rendered_crops WHERE field_id = :field_id"
+
+_RECORD_KIND = """
+INSERT INTO rendered_crops (field_id, crop_kind) VALUES (:field_id, :kind)
+ON CONFLICT(field_id) DO UPDATE SET crop_kind = excluded.crop_kind
 """
 
 # How many rows the model reported for this document, and the last index it used.
@@ -51,12 +65,16 @@ class CropSource:
 
     `bbox` is evidence and only an exact_bbox field has one. `row_position` and
     `expected_rows` locate a row band. `hint` is the model's own box, which
-    refines a band it agrees with and is discarded otherwise.
+    refines a band it agrees with and is discarded otherwise. `route` is how the
+    file was read, which settles whether it has pages to rasterize at all before
+    anything opens it; None is a caller that named a file without saying, and
+    the renderer opens it as a document.
     """
 
     file_path: str
     page: int
     bbox: BBox | None
+    route: ExtractionRoute | None = None
     row_position: int | None = None
     expected_rows: int | None = None
     hint: BBox | None = None
@@ -73,6 +91,7 @@ def source(connection: sqlite3.Connection, *, doc_id: str, field_id: str) -> Cro
     vision_line = row["source"] == FieldSource.LLM_VISION and row["line_no"] is not None
     return CropSource(
         file_path=str(row["file_path"]),
+        route=ExtractionRoute(row["route"]),
         page=DEFAULT_PAGE_INDEX if page is None else int(page),
         bbox=_bbox(row),
         row_position=int(row["line_no"]) if vision_line else None,
@@ -82,20 +101,26 @@ def source(connection: sqlite3.Connection, *, doc_id: str, field_id: str) -> Cro
     )
 
 
-def record_kind(
-    connection: sqlite3.Connection, *, doc_id: str, field_id: str, kind: CropKind
-) -> None:
+def rendered_kind(connection: sqlite3.Connection, field_id: str) -> CropKind | None:
+    """What the render that produced this field's crop cut, or None if none has run.
+
+    None is the answer that matters. It is the difference between a decision and
+    the extractor's fallback guess, and it is why a caption is never read off the
+    fields table.
+    """
+    row: sqlite3.Row | None = connection.execute(_RENDERED_KIND, {"field_id": field_id}).fetchone()
+    return None if row is None else CropKind(row["crop_kind"])
+
+
+def record_kind(connection: sqlite3.Connection, *, field_id: str, kind: CropKind) -> None:
     """Record how the served crop was actually found, so the queue can caption it.
 
     The extractor records what it could see without the page in front of it. The
     renderer is the only place that knows whether the row was located, so it is
-    the place that gets to say so.
+    the only place that writes here.
     """
     with connection:
-        connection.execute(
-            "UPDATE fields SET crop_kind = :kind WHERE doc_id = :doc_id AND field_id = :field_id",
-            {"kind": kind.value, "doc_id": doc_id, "field_id": field_id},
-        )
+        connection.execute(_RECORD_KIND, {"field_id": field_id, "kind": kind.value})
 
 
 def _expected_rows(connection: sqlite3.Connection, doc_id: str) -> int | None:

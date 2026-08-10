@@ -21,6 +21,9 @@ export const SUMMARY: StatsSummary = {
   fields_extracted: 2500,
   auto_accept_rate: 0.804,
   review_queue_depth: 490,
+  // Divided by the API. 490 over 2500 is the 19.6 percent the demo is about,
+  // and it is deliberately not the review rate the scorecard publishes.
+  review_queue_share: 0.196,
   open_exception_count: 4,
   gross_dollars_at_risk_cents: 367_000,
   cost_per_document_microusd: 45_000,
@@ -101,6 +104,7 @@ export const VIN_DETAIL: ReviewItemDetail = {
   // whole statement. The crop panel has to say so rather than leave a reader
   // staring at a page wondering which number is the one under review.
   crop_kind: 'full_page',
+  crop_unavailable_reason: null,
   signals: {
     self_consistency: 0.5,
     det_llm_agreement: null,
@@ -124,6 +128,7 @@ export const VIN_DETAIL: ReviewItemDetail = {
 export const AMOUNT_DETAIL: ReviewItemDetail = {
   ...AMOUNT_ITEM,
   crop_kind: 'exact_bbox',
+  crop_unavailable_reason: null,
   signals: {
     self_consistency: 0.5,
     det_llm_agreement: null,
@@ -147,6 +152,7 @@ export const AMOUNT_DETAIL: ReviewItemDetail = {
 export const CLAIM_DETAIL: ReviewItemDetail = {
   ...CLAIM_ITEM,
   crop_kind: 'row_band',
+  crop_unavailable_reason: null,
   signals: {
     self_consistency: 0,
     det_llm_agreement: null,
@@ -167,10 +173,54 @@ export const CLAIM_DETAIL: ReviewItemDetail = {
   neighbors: [],
 }
 
+// A CSV statement. There is no page behind any of its values, so the API sends
+// no crop kind at all and says why instead.
+export const DOC_C = 'doc-parts_statement-dlr-atlas-202604-03'
+
+export const TABULAR_ITEM: ReviewItem = {
+  field_id: `fld-${DOC_C}-0001-line_amount`,
+  doc_id: DOC_C,
+  line_no: 1,
+  name: 'line_amount',
+  family: 'amount',
+  raw_text: '1000.00',
+  value: '1000.00',
+  confidence: 0.28,
+  status: 'needs_review',
+  crop_url: `/api/crops/${DOC_C}/fld-${DOC_C}-0001-line_amount.png`,
+}
+
+export const TABULAR_DETAIL: ReviewItemDetail = {
+  ...TABULAR_ITEM,
+  crop_kind: null,
+  crop_unavailable_reason: 'no_page_image',
+  signals: {
+    self_consistency: null,
+    det_llm_agreement: null,
+    validator_pass: 1,
+    grammar_match: null,
+    crossfoot_ok: 1,
+    crossfoot_residual_suspect: false,
+    char_ambiguity: 0,
+    route: 'csv',
+  },
+  document: {
+    doc_id: DOC_C,
+    doc_type: 'parts_statement',
+    quality_tier: 'csv',
+    route: 'csv',
+    split: 'calibration',
+  },
+  neighbors: [],
+}
+
+export const TABULAR_QUEUE: ReviewQueueResponse = { items: [TABULAR_ITEM], total: 1 }
+
 export const DETAILS: Record<string, ReviewItemDetail> = {
   [VIN_ITEM.field_id]: VIN_DETAIL,
   [AMOUNT_ITEM.field_id]: AMOUNT_DETAIL,
   [CLAIM_ITEM.field_id]: CLAIM_DETAIL,
+  [TABULAR_ITEM.field_id]: TABULAR_DETAIL,
 }
 
 // The exceptions contract test's seeded rows, already in the API's ranking:

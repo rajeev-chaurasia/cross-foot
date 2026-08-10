@@ -11,8 +11,8 @@ from pathlib import Path
 
 from crossfoot.api.dto import MetricsPayload
 from crossfoot.api.routes.metrics import SCORECARD_FILENAME, latest_scorecard
-from crossfoot.constants import FieldFamily, SplitName
-from crossfoot.models.scorecard import Scorecard, ThresholdPoint
+from crossfoot.constants import ExceptionType, FieldFamily, ReconMode, SplitName
+from crossfoot.models.scorecard import ReconCell, Scorecard, ThresholdPoint
 
 OLDER_RUN_ID = "20260801T120000-aaaaaaa"
 NEWER_RUN_ID = "20260807T090000-bbbbbbb"
@@ -48,6 +48,20 @@ SWEEP: tuple[ThresholdPoint, ...] = (
         threshold=0.7,
         auto_accept_precision=0.9597,
         review_rate=0.0534,
+    ),
+)
+
+
+# All a reconciliation run has to publish, and none of it is drawn by this route.
+RECONCILIATION: tuple[ReconCell, ...] = (
+    ReconCell(
+        mode=ReconMode.ORACLE,
+        exception_type=ExceptionType.AMOUNT_MISMATCH,
+        injected=4,
+        detected_true=4,
+        detected_false=0,
+        injected_dollar_cents=150_000,
+        caught_dollar_cents=150_000,
     ),
 )
 
@@ -95,6 +109,32 @@ def test_the_newest_scorecard_wins_even_when_its_name_sorts_first(tmp_path: Path
     latest = latest_scorecard(tmp_path)
     assert latest is not None
     assert latest.run_id == LATEST_RUN_ID
+
+
+def test_a_reconciliation_scorecard_does_not_displace_the_evaluation_it_followed(
+    tmp_path: Path,
+) -> None:
+    """A full run ends with reconciliation, whose scorecard has nothing to draw.
+
+    It carries recon cells and no field accuracy, calibration or sweep, so
+    publishing it because it is newest leaves the metrics page reading "this
+    scorecard published none" three times over and the held out result nowhere.
+    """
+    evaluation = scorecard(NEWER_RUN_ID, datetime(2026, 8, 7, 9, 0, tzinfo=UTC)).model_copy(
+        update={"threshold_sweep": SWEEP}
+    )
+    commit(tmp_path, evaluation)
+    commit(
+        tmp_path,
+        scorecard(
+            "recon-oracle-20260808T000000", datetime(2026, 8, 8, 0, 0, tzinfo=UTC)
+        ).model_copy(update={"reconciliation": RECONCILIATION}),
+    )
+
+    latest = latest_scorecard(tmp_path)
+    assert latest is not None
+    assert latest.run_id == NEWER_RUN_ID
+    assert latest.threshold_sweep == SWEEP
 
 
 def test_a_scorecard_that_no_longer_validates_is_skipped_rather_than_fatal(tmp_path: Path) -> None:

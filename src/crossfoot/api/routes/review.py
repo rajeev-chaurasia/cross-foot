@@ -3,6 +3,11 @@
 Accepting and correcting are both idempotent in the sense that matters: a second
 accept is the same state, and a second correction is another row in a history
 that never loses the model's original reading.
+
+Reading one item settles its crop, because the caption this route publishes has
+to describe the picture the browser is about to fetch, and only the render knows
+what it cut. The render is cached, so the fetch that follows is the same picture
+and the page is rasterized once rather than twice.
 """
 
 from __future__ import annotations
@@ -12,16 +17,20 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 
-from crossfoot.api.deps import Connection
+from crossfoot.api import crop_cache
+from crossfoot.api.crop_render import CropSourceError
+from crossfoot.api.deps import ApiPaths, Connection, Paths
 from crossfoot.api.dto import (
     MAX_PAGE_OFFSET,
     CorrectionRequest,
+    CropUnavailableReason,
     Page,
     ReviewItem,
     ReviewItemDetail,
 )
-from crossfoot.constants import FieldFamily, QualityTier, ReviewStatus
+from crossfoot.constants import CropKind, FieldFamily, QualityTier, ReviewStatus
 from crossfoot.db import documents, review
+from crossfoot.evals.paths import UnsafeDatasetPathError
 
 router = APIRouter(tags=["review"])
 
@@ -66,7 +75,7 @@ def review_queue(
 
 
 @router.get("/review/items/{field_id}")
-def review_item(connection: Connection, field_id: FieldId) -> ReviewItemDetail:
+def review_item(paths: Paths, connection: Connection, field_id: FieldId) -> ReviewItemDetail:
     """One field with its signal breakdown, its document, and the rest of its line."""
     row = _require_field(connection, field_id)
     doc_id = str(row["doc_id"])
@@ -76,8 +85,15 @@ def review_item(connection: Connection, field_id: FieldId) -> ReviewItemDetail:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=UNKNOWN_DOCUMENT_DETAIL.format(doc_id=doc_id),
         )
+    crop_kind, crop_unavailable_reason = _crop_caption(
+        paths, connection, doc_id=doc_id, field_id=field_id
+    )
     return ReviewItemDetail.build(
-        row, document=document, neighbors=review.neighbors(connection, row)
+        row,
+        document=document,
+        neighbors=review.neighbors(connection, row),
+        crop_kind=crop_kind,
+        crop_unavailable_reason=crop_unavailable_reason,
     )
 
 
@@ -104,6 +120,25 @@ def correct_item(
         )
     review.correct(connection, field_id=field_id, new_value=canonical, reviewer=correction.reviewer)
     return ReviewItem.from_row(_require_field(connection, field_id))
+
+
+def _crop_caption(
+    paths: ApiPaths, connection: sqlite3.Connection, *, doc_id: str, field_id: str
+) -> tuple[CropKind | None, CropUnavailableReason | None]:
+    """How the crop panel should caption this field: a kind, or why there is none.
+
+    A field with no picture is still a field a reviewer has to work, so nothing
+    here refuses the item; it says what the panel will be showing instead.
+    """
+    try:
+        crop = crop_cache.rendered_crop(paths, connection, doc_id=doc_id, field_id=field_id)
+    except UnsafeDatasetPathError:
+        # This doc_id came out of the fields table rather than off the wire, so a
+        # segment that leaves the crop root is a broken row, not an attack.
+        return None, CropUnavailableReason.SOURCE_UNREACHABLE
+    except CropSourceError as error:
+        return None, error.reason
+    return crop.kind, None
 
 
 def _require_field(connection: sqlite3.Connection, field_id: str) -> sqlite3.Row:

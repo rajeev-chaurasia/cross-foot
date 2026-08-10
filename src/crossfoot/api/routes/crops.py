@@ -8,16 +8,17 @@ device prefix, or climbs out with `..` is rejected before a path is built, so a
 hostile request is answered from memory, never from the filesystem, and never
 from the renderer, which the check stands in front of.
 
-The order is containment, then the cache, then the database, then the render. A
-field the database holds always yields an image: an exact box is cut from its
-page, a vision field gets the band of the row it was read from when that row can
-be located, and anything else falls back to the whole page. 404 means the pair
-names no field, not that nothing has been rendered yet. A source document that
-cannot be rasterized is a property of the document, so it is a typed 424 body the
-queue can show the value around, never a 500.
-
-Rendering writes twice: the cached PNG, and the crop_kind the render settled on,
-because only the render has the page image the decision needs.
+The order is containment, then the cache, then the database, then the render,
+and the last three live in crossfoot.api.crop_cache because the review item
+settles the same crop to caption it. This route serves bytes and publishes no
+caption, so a cached file answers it outright; the item, which does publish one,
+never accepts a file whose render was not recorded. A document with pages always
+yields an image: an exact box is cut from its page, a vision field gets the band
+of the row it was read from when that row can be located, and anything else falls
+back to the whole page. 404 means the pair names no field, not that nothing has
+been rendered yet. A source document that cannot be rasterized, or that has no
+pages to rasterize at all, is a property of the document, so it is a typed 424
+body the queue can show the value around, never a 500.
 """
 
 from __future__ import annotations
@@ -28,19 +29,16 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.responses import Response
 
-from crossfoot.api.crop_render import CropSourceError, render_crop_file
+from crossfoot.api import crop_cache
+from crossfoot.api.crop_render import CropSourceError
 from crossfoot.api.deps import CROP_PATH_TEMPLATE, Connection, Paths
 from crossfoot.api.dto import CropUnavailable
-from crossfoot.db import crops as crop_db
-from crossfoot.evals.paths import UnsafeDatasetPathError, resolve_dataset_path
+from crossfoot.evals.paths import UnsafeDatasetPathError
 
 _LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(tags=["crops"])
 
-# The extension is part of the route, so it is spelled here rather than imported
-# from crossfoot.extraction.crops: serving a cached file needs no image stack.
-CROP_SUFFIX = ".png"
 PNG_MEDIA_TYPE = "image/png"
 
 ESCAPING_SEGMENT_DETAIL = "crop path escapes the crop root"
@@ -70,22 +68,20 @@ def crop(paths: Paths, connection: Connection, doc_id: str, field_id: str) -> Re
     A segment that leaves the crop root is a 400 and never a file read.
     """
     try:
-        directory = resolve_dataset_path(paths.crops_root, doc_id)
-        path = resolve_dataset_path(directory, f"{field_id}{CROP_SUFFIX}")
+        path = crop_cache.cached_path(paths, doc_id=doc_id, field_id=field_id)
     except UnsafeDatasetPathError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=ESCAPING_SEGMENT_DETAIL
         ) from error
     if path.is_file():
         return FileResponse(path, media_type=PNG_MEDIA_TYPE)
-    source = crop_db.source(connection, doc_id=doc_id, field_id=field_id)
-    if source is None:
+    try:
+        rendered = crop_cache.rendered_crop(paths, connection, doc_id=doc_id, field_id=field_id)
+    except crop_cache.UnknownCropFieldError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=MISSING_CROP_DETAIL.format(doc_id=doc_id, field_id=field_id),
-        )
-    try:
-        kind = render_crop_file(source=source, dataset_dir=paths.dataset_dir, destination=path)
+        ) from error
     except CropSourceError as error:
         _LOGGER.warning("no crop for %s/%s: %s", doc_id, field_id, error.detail)
         payload = CropUnavailable(
@@ -94,7 +90,4 @@ def crop(paths: Paths, connection: Connection, doc_id: str, field_id: str) -> Re
         return JSONResponse(
             status_code=CROP_UNAVAILABLE_STATUS, content=payload.model_dump(mode="json")
         )
-    # Publishing the crop and recording how it was found are one act: the caption
-    # the queue shows beside a picture has to describe that picture.
-    crop_db.record_kind(connection, doc_id=doc_id, field_id=field_id, kind=kind)
-    return FileResponse(path, media_type=PNG_MEDIA_TYPE)
+    return FileResponse(rendered.path, media_type=PNG_MEDIA_TYPE)

@@ -8,8 +8,9 @@ the comment beside it.
 Pinned surface, binding in the phase 2 sense:
 
     GET /api/stats/summary -> documents_processed, fields_extracted,
-        auto_accept_rate, review_queue_depth, open_exception_count,
-        gross_dollars_at_risk_cents, cost_per_document_microusd
+        auto_accept_rate, review_queue_depth, review_queue_share,
+        open_exception_count, gross_dollars_at_risk_cents,
+        cost_per_document_microusd
     GET /api/metrics -> {"scorecard": ..., "calibration": [...],
         "threshold_sweep": [...]}
 
@@ -83,6 +84,7 @@ SUMMARY_FIELDS = frozenset(
         "fields_extracted",
         "auto_accept_rate",
         "review_queue_depth",
+        "review_queue_share",
         "open_exception_count",
         "gross_dollars_at_risk_cents",
         "cost_per_document_microusd",
@@ -383,6 +385,31 @@ def test_auto_accept_rate_and_queue_depth_agree_with_the_seeded_statuses(
     # being the one a human already accepted.
     auto_accepted = payload["auto_accept_rate"] * payload["fields_extracted"]
     assert auto_accepted + payload["review_queue_depth"] == pytest.approx(9)
+
+
+def test_review_queue_share_is_the_depth_over_every_extracted_field(client: TestClient) -> None:
+    # 2 of 10, and it is the API that divides them: a browser doing the same
+    # arithmetic is how a screen came to print a figure nothing published.
+    payload = summary(client)
+    assert payload["review_queue_share"] == pytest.approx(0.2)
+    assert payload["review_queue_share"] == pytest.approx(
+        payload["review_queue_depth"] / payload["fields_extracted"]
+    )
+
+
+def test_review_queue_share_falls_as_a_reviewer_works_the_queue(client: TestClient) -> None:
+    """The share is a reading of this database now, not a published rate.
+
+    A scorecard's review rate is measured on a held out split at a fixed
+    threshold and does not move. This one moves, which is the whole reason the
+    two must never be printed as the same figure.
+    """
+    before = summary(client)["review_queue_share"]
+    assert client.post("/api/review/items/fld-s1-0005/accept").status_code == 200
+    after = summary(client)
+    assert after["review_queue_depth"] == 1
+    assert after["review_queue_share"] == pytest.approx(0.1)
+    assert after["review_queue_share"] < before
 
 
 def test_open_exception_count_ignores_the_resolved_one(client: TestClient) -> None:

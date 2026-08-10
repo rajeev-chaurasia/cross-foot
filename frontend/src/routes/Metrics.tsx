@@ -5,6 +5,14 @@
  * GET /api/stats/summary. The accuracy grid prints the counts the scorecard
  * published rather than a rate derived from them, because the scorecard does
  * not publish a per cell rate and this screen is not allowed to invent one.
+ *
+ * The two sources are not the same kind of number and the page says so wherever
+ * they sit together. A scorecard figure is a held out result at a fixed
+ * threshold, measured once and frozen with a run id. A summary figure is a
+ * reading of the database as it stands, over every split, and it moves as
+ * reviewing happens. The review rate in particular exists in both senses, so the
+ * published one is only ever shown inside the sweep, where the split it was
+ * measured on is named on the marker itself.
  */
 
 import { useMetrics, useSummary } from '../api/queries'
@@ -81,43 +89,67 @@ export function Metrics() {
               called" is a claim this page is never in a position to make. */}
           {scorecard.models_used.length === 0
             ? 'This run did not record the models it called.'
-            : `Models: ${scorecard.models_used.join(', ')}.`}
+            : `Models: ${scorecard.models_used.join(', ')}.`}{' '}
+          {scorecard.documents_processed.toLocaleString('en-US')} documents processed,{' '}
+          {scorecard.documents_unprocessable.toLocaleString('en-US')} unprocessable of{' '}
+          {scorecard.documents_total.toLocaleString('en-US')} in the split.
         </p>
         {scorecard.notes !== '' && (
           <p className="mt-1 text-sm text-slate-500">{scorecard.notes}</p>
         )}
       </section>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Tile
-          label="Cost per document"
-          value={
-            summary.data === undefined
-              ? 'Loading'
-              : formatMicroUsd(summary.data.cost_per_document_microusd)
-          }
-          note="Provider list price, so a free tier run still shows what the work costs"
-        />
-        <Tile
-          label="Auto accept rate"
-          value={summary.data === undefined ? 'Loading' : formatRate(summary.data.auto_accept_rate)}
-          note="Share of extracted fields that never reached a human"
-        />
-        <Tile
-          label="Documents processed"
-          value={scorecard.documents_processed.toLocaleString('en-US')}
-          note={`${scorecard.documents_unprocessable.toLocaleString('en-US')} unprocessable of ${scorecard.documents_total.toLocaleString('en-US')} total`}
-        />
-        <Tile
-          label="Open exceptions"
-          value={
-            summary.data === undefined
-              ? 'Loading'
-              : summary.data.open_exception_count.toLocaleString('en-US')
-          }
-          note="Counted from the database, not from the scorecard"
-        />
-      </div>
+      <section aria-labelledby="database-heading">
+        <h2 id="database-heading" className="text-base font-semibold text-slate-900">
+          This database as it stands
+        </h2>
+        {/* Said once, above the tiles, rather than repeated in four notes. These
+            are readings taken now, over every split, and three of the four move
+            as reviewing happens. Nothing in this row is a published result, and
+            the review share in particular is not the review rate the sweep below
+            reports on the held out split. */}
+        <p className="mt-1 text-sm text-slate-600">
+          Counted from the review database, across the train, calibration and test splits
+          together. These move as documents are ingested and as reviewers work the queue. The
+          scorecard figures below do not: they were measured once, on the split each one names.
+        </p>
+        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Tile
+            label="Cost per document"
+            value={
+              summary.data === undefined
+                ? 'Loading'
+                : formatMicroUsd(summary.data.cost_per_document_microusd)
+            }
+            note="Provider list price, so a free tier run still shows what the work costs"
+          />
+          <Tile
+            label="Auto accept rate"
+            value={
+              summary.data === undefined ? 'Loading' : formatRate(summary.data.auto_accept_rate)
+            }
+            note="Share of extracted fields that never reached a human"
+          />
+          <Tile
+            label="In the review queue"
+            value={
+              summary.data === undefined
+                ? 'Loading'
+                : formatRate(summary.data.review_queue_share)
+            }
+            note="Waiting for a human right now, not the published review rate"
+          />
+          <Tile
+            label="Open exceptions"
+            value={
+              summary.data === undefined
+                ? 'Loading'
+                : summary.data.open_exception_count.toLocaleString('en-US')
+            }
+            note="Still unresolved, so this falls as they are worked"
+          />
+        </div>
+      </section>
 
       <section className={`${CARD} overflow-x-auto p-4`} aria-labelledby="accuracy-heading">
         <h2 id="accuracy-heading" className="text-base font-semibold text-slate-900">

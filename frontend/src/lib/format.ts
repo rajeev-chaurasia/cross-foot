@@ -46,20 +46,6 @@ export function formatRate(rate: number, digits = 1): string {
 }
 
 /**
- * A count over a total as a percentage string.
- *
- * Both arguments are counts the API published; this only puts them over each
- * other so the queue can say what share of all fields it holds. A zero total
- * has no share, so it reads as a dash rather than as zero percent.
- */
-export function formatShare(count: number, total: number, digits = 1): string {
-  if (total <= 0) {
-    return '-'
-  }
-  return formatRate(count / total, digits)
-}
-
-/**
  * A confidence in 0..1 as a percentage.
  *
  * The API sends the full float, and a reviewer reading "97 percent auto accept

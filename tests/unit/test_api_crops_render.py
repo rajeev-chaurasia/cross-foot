@@ -40,9 +40,9 @@ from pdf_fixtures import (
     statement_items,
 )
 
-from crossfoot.api import create_app, crop_render
+from crossfoot import pdfium
+from crossfoot.api import create_app, crop_cache, crop_render
 from crossfoot.api.dto import CropUnavailableReason
-from crossfoot.api.routes import crops as crops_route
 from crossfoot.constants import (
     CorruptionKind,
     CropKind,
@@ -66,6 +66,10 @@ BROKEN_DOC = "doc-broken"
 # not match it, which is how a page whose table cannot be trusted behaves.
 VISION_DOC = "doc-vision"
 MISCOUNTED_DOC = "doc-miscounted"
+# A tabular statement: perfectly healthy, and with no page anywhere in it.
+TABULAR_DOC = "doc-tabular"
+TABULAR_FIELD = "fld-tabular-0001-line_amount"
+TABULAR_CSV = "Date,Invoice,Description,Amount\n07/10/2026,INV1000000,Restock,1000.00\n"
 
 EXACT_FIELD = "fld-a-0001-line_amount"
 FULL_PAGE_FIELD = "fld-a-0002-statement_number"
@@ -143,7 +147,9 @@ INSERT INTO fields (
 )
 """
 
-_CROP_KIND = "SELECT crop_kind FROM fields WHERE field_id = :field_id"
+# The render's own record, which is a different table from the extractor's
+# fields.crop_kind and is absent entirely until a crop has been cut.
+_CROP_KIND = "SELECT crop_kind FROM rendered_crops WHERE field_id = :field_id"
 
 
 def vision_items() -> list[tuple[float, float, int, str]]:
@@ -278,6 +284,39 @@ def _seed(connection: sqlite3.Connection) -> None:
             },
         )
     _seed_vision(connection, signals)
+    _seed_tabular(connection, signals)
+
+
+def _seed_tabular(connection: sqlite3.Connection, signals: str) -> None:
+    """A CSV document, whose fields were read from rows rather than from a page."""
+    connection.execute(
+        _INSERT_DOCUMENT,
+        {
+            "doc_id": TABULAR_DOC,
+            "file_path": f"files/{TABULAR_DOC}.csv",
+            "quality_tier": QualityTier.CSV.value,
+            "route": ExtractionRoute.CSV.value,
+        },
+    )
+    connection.execute(
+        _INSERT_LINE_FIELD,
+        {
+            "field_id": TABULAR_FIELD,
+            "doc_id": TABULAR_DOC,
+            "line_no": 1,
+            "name": FieldName.LINE_AMOUNT.value,
+            "family": FieldFamily.AMOUNT.value,
+            "source": FieldSource.DETERMINISTIC.value,
+            "crop_kind": CropKind.FULL_PAGE.value,
+            "page": None,
+            "x0": None,
+            "y0": None,
+            "x1": None,
+            "y1": None,
+            "status": ReviewStatus.NEEDS_REVIEW.value,
+            "signals": signals,
+        },
+    )
 
 
 @pytest.fixture
@@ -290,6 +329,9 @@ def dataset_dir(tmp_path: Path) -> Path:
     for doc_id in (VISION_DOC, MISCOUNTED_DOC):
         (files / f"{doc_id}.pdf").write_bytes(minimal_pdf(vision_items()))
     write_corrupted(CorruptionKind.BINARY_JUNK, 7, files / f"{BROKEN_DOC}.pdf")
+    # Written for real, so a refusal to draw it is about the format rather than
+    # about a file that happened to be missing.
+    (files / f"{TABULAR_DOC}.csv").write_text(TABULAR_CSV, encoding="utf-8")
     return dataset
 
 
@@ -337,10 +379,11 @@ def _pixels(payload: bytes) -> tuple[int, int]:
     return int(image.shape[1]), int(image.shape[0])
 
 
-def _recorded_kind(db_path: Path, field_id: str) -> str:
+def _recorded_kind(db_path: Path, field_id: str) -> str | None:
+    """What the render recorded for this field, or None when none has run."""
     with closing(connect(db_path)) as connection:
         row = connection.execute(_CROP_KIND, {"field_id": field_id}).fetchone()
-    return str(row["crop_kind"])
+    return None if row is None else str(row["crop_kind"])
 
 
 def _capped(pixels: tuple[int, int]) -> tuple[int, int]:
@@ -498,7 +541,7 @@ def test_the_band_is_served_from_the_cache_the_second_time(
     written = cached.stat().st_mtime_ns
 
     renders: list[object] = []
-    monkeypatch.setattr(crops_route, "render_crop_file", lambda **kwargs: renders.append(kwargs))
+    monkeypatch.setattr(crop_cache, "render_crop_file", lambda **kwargs: renders.append(kwargs))
     second = client.get(_band_url(BAND_ROW))
 
     assert second.status_code == 200
@@ -547,7 +590,7 @@ def test_the_second_request_serves_the_cached_file_without_rendering_again(
     written = cached.stat().st_mtime_ns
 
     renders: list[object] = []
-    monkeypatch.setattr(crops_route, "render_crop_file", lambda **kwargs: renders.append(kwargs))
+    monkeypatch.setattr(crop_cache, "render_crop_file", lambda **kwargs: renders.append(kwargs))
     second = client.get(_url(DOC, EXACT_FIELD))
 
     assert second.status_code == 200
@@ -590,6 +633,93 @@ def test_a_document_whose_file_is_gone_is_a_typed_error(
     assert payload["reason"] == CropUnavailableReason.SOURCE_MISSING.value
 
 
+# Formats that have rows rather than pages.
+
+
+def test_a_tabular_field_reports_no_page_image_rather_than_an_unreadable_file(
+    client: TestClient,
+) -> None:
+    response = client.get(_url(TABULAR_DOC, TABULAR_FIELD))
+    assert response.status_code == 424
+    payload = response.json()
+    assert payload["reason"] == CropUnavailableReason.NO_PAGE_IMAGE.value
+    assert payload["detail"]
+
+
+def test_a_tabular_field_is_never_opened_as_a_document(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The CSV on disk is healthy. PDFium asked to parse one answers "data format
+    # error", which a reviewer reads as a corrupted statement, so the format has
+    # to be turned away before the file is opened at all.
+    def _refuse(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("a tabular source was opened as a document")
+
+    # crop_render holds the module, so patching the attribute here is what it sees.
+    monkeypatch.setattr(pdfium, "open_document", _refuse)
+    assert client.get(_url(TABULAR_DOC, TABULAR_FIELD)).status_code == 424
+
+
+def test_a_tabular_field_writes_no_crop_and_records_no_kind(
+    client: TestClient, crops_root: Path, tmp_path: Path
+) -> None:
+    client.get(_url(TABULAR_DOC, TABULAR_FIELD))
+    assert list(crops_root.rglob("*.png")) == []
+    assert _recorded_kind(tmp_path / "crossfoot.db", TABULAR_FIELD) is None
+
+
+# The caption the review item publishes, which has to describe the served bytes.
+
+
+def _detail(client: TestClient, field_id: str) -> dict[str, Any]:
+    response = client.get(f"/api/review/items/{field_id}")
+    assert response.status_code == 200
+    payload: dict[str, Any] = response.json()
+    return payload
+
+
+def test_the_item_caption_is_settled_before_any_crop_is_requested(client: TestClient) -> None:
+    # This field is seeded full_page, because that is all the extractor could say
+    # without the page in front of it. The band is only knowable from the page,
+    # so a caption that says row_band here is proof the item looked.
+    field_id = _vision_field(VISION_DOC, BAND_ROW, FieldName.LINE_AMOUNT)
+    payload = _detail(client, field_id)
+    assert payload["crop_kind"] == CropKind.ROW_BAND.value
+    assert payload["crop_unavailable_reason"] is None
+
+
+def test_the_item_caption_does_not_move_when_the_crop_is_fetched(client: TestClient) -> None:
+    field_id = _vision_field(VISION_DOC, BAND_ROW, FieldName.LINE_AMOUNT)
+    before = _detail(client, field_id)["crop_kind"]
+    assert client.get(_band_url(BAND_ROW)).status_code == 200
+    assert _detail(client, field_id)["crop_kind"] == before
+
+
+def test_a_tabular_item_is_captioned_as_a_format_with_no_page_image(client: TestClient) -> None:
+    payload = _detail(client, TABULAR_FIELD)
+    assert payload["crop_kind"] is None
+    assert payload["crop_unavailable_reason"] == CropUnavailableReason.NO_PAGE_IMAGE.value
+
+
+def test_a_crop_cached_without_a_record_is_cut_again_before_it_is_captioned(
+    client: TestClient, crops_root: Path
+) -> None:
+    """Rebuilding the database leaves the crops on disk and no record of them.
+
+    Captioning that file with whatever the extractor had guessed is exactly the
+    contradiction this record exists to stop, so the item renders it again.
+    """
+    field_id = _vision_field(VISION_DOC, BAND_ROW, FieldName.LINE_AMOUNT)
+    stale = crops_root / VISION_DOC / f"{field_id}.png"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(PNG_MAGIC + b"a crop from a build whose record is gone")
+
+    payload = _detail(client, field_id)
+
+    assert payload["crop_kind"] == CropKind.ROW_BAND.value
+    assert b"whose record is gone" not in stale.read_bytes()
+
+
 # Containment, restated against the renderer.
 
 
@@ -602,7 +732,7 @@ def test_a_hostile_segment_never_renders_and_never_leaks(
     def _spy(**kwargs: Any) -> None:
         renders.append(kwargs)
 
-    monkeypatch.setattr(crops_route, "render_crop_file", _spy)
+    monkeypatch.setattr(crop_cache, "render_crop_file", _spy)
     response = client.get(url)
     # 400 from the handler, or 404 when encoded separators kept it off the route.
     assert response.status_code in {400, 404}
@@ -621,14 +751,15 @@ def test_no_hostile_request_wrote_anything_into_the_crop_root(
 
 def test_no_hostile_request_recorded_a_crop_kind(client: TestClient, tmp_path: Path) -> None:
     # Containment runs before the render, and the render is what records a kind,
-    # so a rejected request must leave every field's caption exactly as seeded.
+    # so a rejected request must leave every field with no caption at all rather
+    # than one it never earned.
     db_path = tmp_path / "crossfoot.db"
     fields = (
         EXACT_FIELD,
         FULL_PAGE_FIELD,
         _vision_field(VISION_DOC, BAND_ROW, FieldName.LINE_AMOUNT),
     )
-    before = {field_id: _recorded_kind(db_path, field_id) for field_id in fields}
+    assert all(_recorded_kind(db_path, field_id) is None for field_id in fields)
     for url in HOSTILE_URLS:
         client.get(url)
-    assert {field_id: _recorded_kind(db_path, field_id) for field_id in fields} == before
+    assert all(_recorded_kind(db_path, field_id) is None for field_id in fields)

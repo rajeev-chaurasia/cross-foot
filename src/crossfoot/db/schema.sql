@@ -99,6 +99,19 @@ CREATE TABLE IF NOT EXISTS applied_thresholds (
     applied_at TEXT NOT NULL
 );
 
+-- How the crop that was actually served was cut, one row per field that has one.
+-- Only the render holds the page image a row band is found on, so the render is
+-- the only writer here, and a field is absent until its crop exists. That absence
+-- is the whole reason this is not fields.crop_kind: that column is what the
+-- extractor could tell before any page was looked at, and overwriting it with a
+-- render's answer left one column meaning two things and a caption that could
+-- contradict the picture under it. A row here is written with the PNG and
+-- survives a rebuild for the same reason the PNG does.
+CREATE TABLE IF NOT EXISTS rendered_crops (
+    field_id TEXT PRIMARY KEY REFERENCES fields(field_id),
+    crop_kind TEXT NOT NULL
+);
+
 -- The queue's total order, so paging reads one index rather than sorting a scan.
 CREATE INDEX IF NOT EXISTS fields_queue ON fields (confidence, field_id);
 CREATE INDEX IF NOT EXISTS fields_doc_line ON fields (doc_id, line_no);
