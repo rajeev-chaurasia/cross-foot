@@ -89,8 +89,10 @@ Every figure on that page is read from a committed scorecard, and each one names
 it came from. Live database counts sit in their own section because they move as reviewers
 work, and a number that moves must not sit beside one that does not.
 
-[docs/walkthrough.md](docs/walkthrough.md) walks one document through the whole system with
-sequence and state diagrams.
+Two more documents go deeper:
+[docs/architecture.md](docs/architecture.md) is the system in seven diagrams, including how
+a correction re-reconciles a document and how the pipeline survives a bad provider.
+[docs/walkthrough.md](docs/walkthrough.md) walks the three screens with screenshots.
 
 ## The problem
 
