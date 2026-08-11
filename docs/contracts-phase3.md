@@ -247,3 +247,25 @@ Places where a number or a caption said more than it knew.
 - A field with no confidence yet is NEEDS_REVIEW, never silently auto accepted.
 - The summary tile reports cost per document from the ledger's list price column, so a
   free local run still shows what the work would cost.
+
+## Clarifications (binding, added 2026-08-11 after Platt scaling landed)
+
+- `Scorecard` gains `platt_scaling`, a cell per field family carrying the slope and
+  intercept applied to that family's scores. Empty means the run published the scorer's
+  raw output, so a boolean beside it would only be a second thing to contradict. A
+  published calibration figure is rebuildable from the committed file rather than taken
+  on trust, which is the same rule every other number on the page follows.
+- The scaler is fit over the scorer's logit rather than its confidence, so slope 1 and
+  intercept 0 is the identity. A family that needs no correction survives being fit,
+  which is what makes it safe to fit all four rather than gate on a measured error. The
+  contract said to apply it above the ceiling; gating on the test split would let the
+  held out data pick the model, and gating on calibration lands knife edge on the one
+  family the correction hurts, so all four are fit and this note records the deviation.
+- Fitting the scaler and choosing the threshold both consume the calibration split, in
+  that order. A threshold chosen before rescaling names a different operating point once
+  the scores under it move.
+- `crossfoot eval --calibrate` turns it on. It is off by default so an existing scorecard
+  cannot change meaning underneath a reader.
+- Platt is monotonic, so it cannot change which fields the queue holds. It corrects how
+  honest a probability is, not how much work a reviewer has. Anything else would mean the
+  transform was not monotonic and the ranking had moved.

@@ -464,3 +464,23 @@ resistance to injection, and none may be inferred from one.
   clock. Extraction output must be identical across runs in REPLAY mode.
 - Every degraded path is recorded rather than hidden: spillover, repair, cache hits,
   checkpoint resumes, and unprocessable documents all appear in the scorecard.
+
+## Clarifications (binding, added 2026-08-11 after the model change)
+
+- A profile carries `sends_json_schema`. Advertising the response format and compiling
+  the extraction schema are different claims, and NVIDIA NIM makes the first without the
+  second: it answers a two field schema and returns 500 on the frozen document schema,
+  six times out of six on an idle endpoint. The capability matrix above cannot express
+  that, because it asks what a provider supports while the question is what this schema
+  compiles on, so the answer sits on the profile.
+- When a profile cannot take the format, the schema travels in the user message instead
+  and the reply is validated here, which is where it was validated anyway. The format
+  buys a cheaper first attempt, not the guarantee. Dropping it without sending the schema
+  some other way is not an option: the prompt deliberately says nothing about shape, so
+  the model is left inventing one and a correct reading fails validation for a reason
+  that has nothing to do with the page.
+- `models_used` on a scorecard, and the ledger rows the review database copies, are
+  scoped to the attempt whose extractions survived. A run id names a split and a dataset
+  rather than one invocation, so an abandoned attempt leaves calls behind under the same
+  id. The cost ledger itself stays append only and keeps every call, because what was
+  spent is not editable by whether the output was kept.

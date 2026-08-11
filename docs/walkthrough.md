@@ -147,8 +147,7 @@ trusting the label it was given.
 
 ## Running it
 
-Generate the corpus, extract, score, then serve. The first three need no API key
-if you stay on the deterministic tiers.
+Generate the corpus, extract, score, then serve. This much needs no API key.
 
 ```bash
 just setup
@@ -158,12 +157,20 @@ crossfoot eval --dataset data/dataset --split test
 crossfoot serve --dataset data/dataset --port 8000
 ```
 
-The scanned tier needs a vision model that also honours a `json_schema`
-response format. Point `CROSSFOOT_LLM_BASE_URL` at any OpenAI compatible
-endpoint and rerun `extract` with `--mode live`. Two profiles are configured:
-NVIDIA NIM leads and Gemini sits behind it, so a run survives one of them
-running out of quota partway through the corpus. The scorecard names every
-model it called.
+That extract step will report failures, and they are expected. Replay serves the
+vision path from committed cassettes and there are none for this corpus, so the
+deterministic tiers come through and the scanned documents do not. It is enough
+for the queue, the dashboard and the correction loop to work end to end.
+
+The scanned tier needs a vision model. Point `CROSSFOOT_LLM_BASE_URL` at any
+OpenAI compatible endpoint and rerun `extract` with `--mode live`. Two profiles
+are configured: NVIDIA NIM leads and Gemini sits behind it, so a run survives one
+of them running out of quota partway through the corpus. The scorecard names
+every model it called.
+
+An endpoint that compiles a `json_schema` response format gets one. An endpoint
+that does not gets the same schema in the message instead, because the reply is
+validated here either way and the format only buys a cheaper first attempt.
 
 Which model reads the page turns out to matter more than anything else in this
 pipeline. On the same heavy photocopy, a small local model read one reference
