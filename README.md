@@ -4,44 +4,93 @@ Crossfoot reads dealership statements, scores its own confidence on every field 
 extracts, reconciles the result against the dealer ledger, and sends only the fields it
 does not trust to a human.
 
-Start with the worst number. On the held out test split, reference fields on the
-`scan_heavy` tier come back **33.1 percent** correct, 47 of 142. Amounts on that tier are
-44.6 percent, 37 of 83. A 17 character VIN on a bad photocopy gives seventeen chances to
-read `0` as `O`, and no reader gets all of them.
+![The review queue](docs/assets/review-queue.png)
 
-The claim is not accuracy. The claim is that the system knows which fields to distrust.
-Confidence is fit on the train split, thresholds are chosen on the calibration split, and
-these are the numbers the held out test split produced at those thresholds:
+A reviewer sees the least trusted reading first, next to the pixels it came from, with the
+reason it was flagged. On the held out test split that is **6.38 percent of fields**, and
+what the queue skips is **96.02 percent** correct.
 
 | Held out test split | Value |
 | --- | --- |
-| Fields scored | 1880 |
 | Auto accept precision | 96.02 percent |
 | Review rate | 6.38 percent |
-| Injected discrepancies caught, matching engine fed truth | 71 of 71, zero false detections |
-| Injected discrepancies caught, matching engine fed extractions | 63 of 71, 66 false detections |
+| Worst cell, references on heavy photocopies | 33.1 percent correct |
+| Discrepancies caught, matcher fed extractions | 63 of 71, 66 false detections |
+| Discrepancies caught, matcher fed truth | 71 of 71, zero false |
+| Cost per processed document | 0.0012 USD |
 
-A reviewer looks at about one field in sixteen of what came back. That is not the whole
-workload: 314 of the 2194 printed fields were never returned by any extractor, so they
-appear in no queue and in no precision figure either. Counting a human's real burden as
-reviewed plus never returned against everything printed gives 19.8 percent.
+Numbers come from `scorecards/20260811T021341-fe5842e/`, committed with the git sha that
+produced them. Confidence is fit on train, thresholds are chosen on calibration, and every
+figure above is measured on a test split that neither of those touched.
 
-The last two rows are the same matcher over the same discrepancies, once on ground truth
-statement lines and once on the lines the pipeline actually read, so the distance between
-them is extraction error on the lines. Both modes take the dealer, the document type, the
-marque and the statement period from the manifest, because the reconciler blocks on those
-and no extractor produces them.
+## How it works
 
-![Auto accept precision against review rate, per family](scorecards/20260811T021341-fe5842e/threshold-sweep.png)
+```mermaid
+flowchart LR
+    subgraph gen["Generate (eval only)"]
+        L["Ledger<br/>the dealer's books"]:::gen
+        S["Statements<br/>composed from the ledger"]:::gen
+        D["Discrepancies<br/>injected and recorded"]:::gen
+        R["Render<br/>PDF, scan, CSV, XLSX"]:::gen
+        L --> S --> D --> R
+    end
 
-Filled marker: the operating point chosen on the calibration split. Open marker: what the
-held out test split reached at that same threshold. The arrow between them is the
-generalization gap, drawn rather than described. Figure and numbers both come from
-`scorecards/20260811T021341-fe5842e/`.
+    subgraph pipe["Pipeline"]
+        RT{"Route<br/>by file signature"}:::pipe
+        DET["Deterministic<br/>pdfplumber, csv, openpyxl"]:::pipe
+        VIS["Vision model<br/>schema bound, k=2"]:::pipe
+        CONF["Confidence<br/>per field"]:::pipe
+        REC["Reconcile<br/>against the ledger"]:::pipe
+        RT -->|"digital pdf, csv, xlsx"| DET
+        RT -->|"scanned pdf"| VIS
+        RT -->|"unreadable"| ERR["Typed error<br/>run continues"]:::err
+        DET --> CONF
+        VIS --> CONF
+        CONF --> REC
+    end
 
-[docs/walkthrough.md](docs/walkthrough.md) is the same system in diagrams and screenshots:
-what happens to one document, how a field earns or loses trust, and what the three review
-surfaces actually look like.
+    subgraph out["Surfaces"]
+        Q["Review queue<br/>lowest confidence first"]:::out
+        X["Exceptions<br/>ranked by dollars"]:::out
+        M["Metrics<br/>from committed scorecards"]:::out
+    end
+
+    R --> RT
+    CONF --> Q
+    REC --> X
+    CONF --> M
+
+    classDef gen fill:#e8f0fe,stroke:#3367d6,color:#10233f
+    classDef pipe fill:#e6f4ea,stroke:#137333,color:#0b2c17
+    classDef out fill:#fef7e0,stroke:#b06000,color:#3d2200
+    classDef err fill:#fce8e6,stroke:#c5221f,color:#3d0f0e
+```
+
+The generator exists only to make the eval honest: every printed string is recorded as it
+is rendered, so ground truth is known by construction and nobody labelled anything
+afterwards. The pipeline never reads that record. It routes on the file's own bytes, the
+way it would in production.
+
+## Correcting a field moves the money
+
+![The exceptions dashboard](docs/assets/exceptions.png)
+
+Reconciliation output, ranked by absolute dollar impact, each row expanding to the
+statement line beside the ledger entry it disagrees with. Correcting a field in the queue
+re-reconciles that document and tells the reviewer what it changed: **cleared 1 exception,
+1,840.00 dollars less at risk on this statement**. The original extraction is kept as
+evidence, so a correction is an append, never an overwrite.
+
+## The numbers are published, not asserted
+
+![Metrics read from a committed scorecard](docs/assets/metrics.png)
+
+Every figure on that page is read from a committed scorecard, and each one names the split
+it came from. Live database counts sit in their own section because they move as reviewers
+work, and a number that moves must not sit beside one that does not.
+
+[docs/walkthrough.md](docs/walkthrough.md) walks one document through the whole system with
+sequence and state diagrams.
 
 ## The problem
 
@@ -59,36 +108,23 @@ The interesting part is not reading the documents. It is knowing which readings 
 
 ## What it does
 
-```
-gen -> extract -> confidence -> reconcile -> review
-```
-
 1. **Generate.** `crossfoot gen` builds the corpus: a ledger, statements composed from it,
-   discrepancies injected into the statements, then rendering to PDF through Chromium,
-   degradation to scans through Augraphy at 200 DPI, and messy CSV and XLSX exports. Every
-   printed string is recorded, so ground truth is known by construction rather than
-   labelled after the fact.
-2. **Route and extract.** Documents are routed by file signature, never by the manifest,
-   so a mislabelled artifact fails the way it would in production. Digital PDFs, CSVs and
-   XLSX go to deterministic extractors. Scanned PDFs are rasterized and sent to a vision model
-   under a JSON schema, sampled twice per document (temperature 0, then temperature 0.4
-   with the prompt field order shuffled) so per field agreement becomes a signal.
+   discrepancies injected into the statements, rendering to PDF through Chromium,
+   degradation to scans through Augraphy, and messy CSV and XLSX exports.
+2. **Route and extract.** Documents are routed by file signature, never by the manifest, so
+   a mislabelled artifact fails the way it would in production. Digital PDFs, CSVs and XLSX
+   go to deterministic extractors. Scanned PDFs are rasterized and sent to a vision model
+   bound to a per document type schema, sampled twice so per field agreement is a signal.
 3. **Score confidence.** Each field gets a `FieldSignals` record: self consistency across
-   the two samples, a VIN check digit validator, a date window read off the other dates the
-   same extraction produced, a grammar match against the marque the document's own
-   reference numbers vote for, whether the document's line amounts crossfoot to its printed
-   total, a confusable glyph ratio over `{O0, I1l, S5, B8, Z2}`, and the route the router
-   chose from the file's bytes. A logistic regression per field family, hand rolled in
-   numpy, turns those into a probability. Every one of those is computable from the
-   artifact alone; truth enters a fit only as the label on a row.
+   the two samples, a VIN check digit, a date window read off the extraction's own dates, a
+   grammar match against the marque its reference numbers vote for, whether the line amounts
+   crossfoot to the printed total, a confusable glyph ratio, and the route. A per family
+   logistic regression, hand rolled in numpy, turns those into a probability.
 4. **Reconcile.** Three passes against the ledger: exact reference plus amount, exact
-   reference with a differing amount, then a fuzzy pass scored on reference similarity,
-   amount proximity, and date proximity. Unmatched lines and unconsumed ledger entries
-   become typed exceptions with signed dollar impact.
-5. **Review.** `crossfoot serve` builds a SQLite review database and serves a keyboard
-   driven queue sorted by ascending confidence, with the cropped pixels the value came
-   from next to it, plus an exceptions dashboard ranked by dollars. Corrections are append
-   only: the original extraction stays recoverable as evidence and as a future eval label.
+   reference with a differing amount, then a fuzzy pass on reference, amount and date
+   proximity. What is left over becomes typed exceptions carrying signed dollar impact.
+5. **Review.** `crossfoot serve` builds a SQLite review database and serves the three
+   screens above.
 
 ## Results
 
@@ -171,47 +207,32 @@ earned by the reader abstaining on hard pages rather than by the scorer catching
 
 ### What the honest signals cost
 
-These numbers are worse than an earlier run of this pipeline reported, and both reasons are
-worth knowing. The first is here: four confidence features were read out of the dataset
-manifest rather than out of the artifact, which is information no real document carries.
-The second was that 26 of the 210 documents were being discarded before they were ever
-scored, and that story is under "Route by bytes" in the design notes.
-
 `SignalContext` used to be handed a `ManifestRecord`. Four of the values it took from there
-have no inference time equivalent, and `src/crossfoot/scoring.py`, which materializes the
-review database the API and the UI read, took the same route. What replaced each:
+have no inference time equivalent, which means an earlier version of this page published
+numbers partly bought with information no real document carries. What replaced each:
 
 | Signal | Was | Is |
 | --- | --- | --- |
 | categorical base rate | the generator's `quality_tier`, one hot encoded | `ExtractionRoute`, read off the file's bytes by the router |
 | date window | the true `period_start` and `period_end` | the statement date this extraction produced, or the middle of the document's other dates, and never a date's own |
 | amount validator | parsed, and the sign agreed with the true line type | parsed |
-| reference grammar | the true `oem`'s grammar | the marque this document's own reference numbers vote for, falling back to whether any marque recognizes the value |
+| reference grammar | the true `oem`'s grammar | the marque this document's own reference numbers vote for |
 
-Measured by refitting on train, rechoosing thresholds on calibration and rescoring test
-each time, the tier label alone was worth about 16 percentage points of review rate:
-merging `scan_light` and `scan_heavy` into one scanned value cost 4 points, and removing
-tier information entirely cost 37. The route lands between them, because a document does
-announce whether it carries a text layer and does not announce how badly it was
-photocopied. Those three figures were measured on the earlier corpus and no committed
-scorecard carries them, so they are the shape of the effect rather than current numbers.
-
-`tests/unit/test_truth_boundary.py` walks the AST of every module under `src/crossfoot`
-except the generator, the eval harness and the manifest model itself, and fails the build
-if any of them imports the manifest or mentions `manifest.json`. It also pins the field
-lists of `FieldSignals` and `SignalContext`, because an import guard alone would not catch
-the leak coming back as a new field.
+The tier label alone was worth roughly 16 percentage points of review rate when it was
+removed, measured by refitting and rescoring each time. The route lands well below it,
+because a file announces whether it carries a text layer and does not announce how badly it
+was photocopied. Those figures were measured on the earlier corpus and no committed
+scorecard carries them, so read them as the shape of the effect rather than as current
+numbers.
 
 ![Reliability of the confidence score](scorecards/20260811T021341-fe5842e/reliability-diagram.png)
 
-Expected calibration error on test, computed from the committed calibration bins with
-`expected_calibration_error` in `src/crossfoot/confidence/calibration.py`: amount 0.039,
-date 0.042, reference 0.058, text 0.044. The contract sets a ceiling of 0.05 and calls for
-Platt scaling fit on the calibration split above it, which this run applies: the scorecard
-carries the slope and intercept per family in `platt_scaling`, so a published figure can be
-rebuilt from the committed file rather than taken on trust. Reference is still over the
-ceiling at 0.058. Platt is a monotonic transform, so it corrects how honest a probability
-is and cannot change which fields the queue holds.
+Expected calibration error on test: amount 0.039, date 0.042, reference 0.058, text 0.044.
+The contract sets a ceiling of 0.05 and specifies Platt scaling above it, which this run
+applies; the scorecard carries the slope and intercept per family in `platt_scaling`, so a
+published figure is rebuildable from the committed file. Reference is still over at 0.058.
+Platt is monotonic, so it corrects how honest a probability is and cannot change which
+fields the queue holds.
 
 ### Reconciliation: how much of the error is extraction
 
@@ -278,114 +299,53 @@ which is not committed. Treat it accordingly.
 
 **Ground truth by construction.** Nothing is hand labelled. The generator composes each
 statement from a ledger it also writes, injects discrepancies it records, and the renderer
-captures every string it prints into `rendered_values`. Truth is what was printed, known
-before any extractor sees the file.
+captures every printed string. Truth is what was printed, known before any extractor sees
+the file.
 
 **A field counts as expected only if the artifact printed it.** CSV exports carry no
-statement totals; XLSX exports carry only some header fields. Counting those against the
-extractor measured the format, not the pipeline. So the scorecard publishes both
-denominators side by side, `fields_in_truth` and `fields_expected`, and a reader can judge
-the change instead of taking it on trust. On this test split they are 2227 and 2194.
+statement totals and XLSX exports carry only some header fields, so counting those against
+the extractor would measure the format rather than the pipeline. The scorecard publishes
+both denominators, `fields_in_truth` and `fields_expected`, at 2227 and 2194 here.
 
-**Document level splits, and the discipline is code.** Splits are assigned per document,
-stratified by document type and quality tier, 50/25/25 across 105 train, 52 calibration,
-and 53 test documents, so no field from one statement can appear on both sides of a split.
-`fit_scorers` refuses any split but train and `choose_thresholds` refuses any split but
-calibration, both checking the caller's stated intent and the split tag on every row.
-Misuse raises `SplitDisciplineError` rather than quietly inflating a scorecard.
-`sweep_point`, which measures a threshold already chosen, is deliberately not guarded and
-carries a docstring saying why.
+**Split discipline is code, not convention.** Splits are per document, stratified by type
+and tier, 105 train, 52 calibration, 53 test. `fit_scorers` refuses any split but train and
+`choose_thresholds` refuses any split but calibration, both checking the split tag on every
+row rather than the caller's word for it. Misuse raises `SplitDisciplineError` instead of
+quietly inflating a scorecard.
 
-**Nothing that scores a document can see the answers.** One test walks the AST of every
-module under `src/crossfoot` and fails if any of them imports the generator or the manifest
-models, or mentions `manifest.json`. Three modules and two directories are exempt, the
-generator that writes the answer key and the eval harness that scores against it, and the
-exemption is by directory, so this catches the accidental leak rather than a determined
-one. It caught a real one: an earlier build named three packages instead, which left
-`scoring.py` outside the net and let the manifest reach the review database. The stronger
-half of the same test pins the exact field lists of `FieldSignals` and `SignalContext` by
-set equality, so a leak arriving as a new signal fails even when the import graph is
-clean.
+**Nothing that scores a document can see the answers.** A test walks the AST of every
+module under `src/crossfoot` and fails if any imports the generator or the manifest. The
+exemption is by directory, so it catches the accidental leak rather than a determined one,
+and it caught a real one: an earlier build left `scoring.py` outside the net and the
+manifest reached the review database. The stronger half pins the exact field lists of
+`FieldSignals` by set equality, so a leak arriving as a new signal fails even when the
+import graph looks clean.
 
-**Scorecards are committed with their git sha.** Each carries `run_id`, `git_sha`,
-`dataset_config_hash`, `master_seed`, and the split it reports. The dataset hash on all
-three test split scorecards here is `e14a532c` and the seed is 42, and a corpus regenerated
-from that seed matches this one byte for byte, every file and every tier. So the dataset a
-reader builds is the dataset these numbers were measured on, which `just repro` checks
-cell by cell for the tiers that need no model.
+**Scorecards carry their git sha, dataset hash and seed.** A corpus regenerated from seed
+42 matches this one byte for byte, every file and every tier, so the dataset a reader
+builds is the dataset these numbers were measured on. `just repro` checks it cell by cell
+for the tiers that need no model. Each scorecard also names every model that served the
+run, because which model reads a scanned page matters more than anything else here.
 
-The scorecard also records every model that served the run, because which model reads a
-scanned page turns out to matter more than anything else in this pipeline, and a number
-that does not name its reader is not reproducible in any useful sense.
-
-**Figures live next to the scorecard that produced them.** `crossfoot plots` writes each
-PNG into the scorecard's own directory and stamps the run id, split, dataset hash, and git
-sha into the caption. A figure cannot drift from its numbers because it has nowhere else
-to live.
+**Figures live beside the scorecard that produced them.** `crossfoot plots` writes each PNG
+into that scorecard's own directory, so a figure cannot drift from its numbers.
 
 ## Reproduce it
 
 Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-just setup                  # uv sync, pre-commit hooks, playwright chromium
-just                        # ruff, mypy strict, pytest
+just setup     # uv sync, pre-commit hooks, playwright chromium
+just           # ruff, mypy strict, pytest, frontend tests
+just repro     # regenerate the corpus and check it against the committed scorecard
 ```
 
-Check the published numbers against a corpus you generate yourself. No API key, no GPU:
+`just repro` rebuilds the corpus from seed 42 into its own directory, scores the
+deterministic tiers, and compares 12 cells with the committed scorecard. It should report
+0 differences. It deliberately skips the two scanned tiers and says so rather than passing
+quietly, because those need a vision model.
 
-```bash
-just repro
-```
-
-That regenerates the corpus from seed 42 into its own directory, scores the deterministic
-tiers, and compares them cell by cell with the committed scorecard. It compares 12 cells and
-should report 0 differences. It deliberately does not compare the two scanned tiers, and it
-says so rather than passing quietly: those need a vision model, and `scan_heavy` does not
-regenerate byte identically, so its images would not be the images the published numbers
-were read off.
-
-The individual steps, if you want them:
-
-```bash
-uv run crossfoot gen --seed 42 --out data/dataset
-uv run crossfoot eval --dataset data/dataset --split test
-uv run crossfoot reconcile --dataset data/dataset --split test --mode oracle
-```
-
-`gen` renders through Playwright Chromium and degrades scans through Augraphy, so it is
-the slow step. The same seed reproduces all 222 files byte for byte, measured by generating
-the full profile twice and hashing every file.
-
-That took a fix worth naming, because the obvious one does not work. Augraphy's
-`DirtyRollers` calls `random.randint` from inside a numba compiled function, and numba
-implements the `random` module in nopython mode with its own generator state. Seeding the
-interpreter's `random` and numpy per page, which the generator already did, cannot reach
-it. Only a seed call made from inside compiled code does. That augmentation is chosen on a
-coin flip, which is why exactly 17 of the 32 `scan_heavy` documents used to differ rather
-than all of them. `tests/contract/test_generator_determinism.py` pins the heavy tier
-directly against `degrade_to_scan` on four seeds covering both pipeline branches, because
-generating the full profile is far too slow for CI and one heavy document in the small
-profile would exercise the compiled path only half the time.
-
-The scanned tier needs a vision model that also supports `json_schema` response formats.
-Point `CROSSFOOT_LLM_BASE_URL` at any OpenAI compatible endpoint, local or hosted, or set
-a provider key from `.env.example`:
-
-```bash
-uv run crossfoot probe                                              # what is reachable
-uv run crossfoot extract --dataset data/dataset --split train --mode live
-uv run crossfoot extract --dataset data/dataset --split calibration --mode live
-uv run crossfoot extract --dataset data/dataset --split test --mode live --resume
-uv run crossfoot calibrate --dataset data/dataset                   # fit, then choose
-uv run crossfoot eval --dataset data/dataset --split test           # scores the saved run
-uv run crossfoot reconcile --dataset data/dataset --split test --mode end_to_end
-uv run crossfoot plots
-```
-
-To run the product rather than the eval, build a corpus and extract it first. `serve` reads
-`data/dataset` and `data/extractions`, and neither is committed, so a clean checkout that
-skips these two steps gets a queue reporting zero fields:
+To run the product rather than the eval:
 
 ```bash
 uv run crossfoot gen --seed 42 --out data/dataset
@@ -394,89 +354,84 @@ cd frontend && npm install && npm run build && cd ..
 uv run crossfoot serve --dataset data/dataset
 ```
 
-The extract step needs no key and no GPU, and it will report failures. Replay serves the
-vision path from committed cassettes and there are none for this corpus, so 31 of the 53
-test documents extract and the 22 scanned ones fail with `no cassette`. That is the
-expected result without a model, and it takes a few minutes because each failure exhausts
-its retries first. What you get is the deterministic tiers, which is enough for the queue,
-the dashboard and the correction loop to work end to end. Run the live extraction above to
-fill in the scanned documents.
+The extract step needs no key and will report failures, which is expected. Replay serves
+the vision path from committed cassettes and there are none for this corpus, so the
+deterministic tiers come through and the scanned documents do not. It is enough for all
+three screens and the correction loop to work end to end.
 
-Note this is a different directory from `just repro`, which writes to `data/repro` on
-purpose so a reproduction attempt cannot overwrite the corpus the published extractions
-were read from.
+For the scanned tier, point `CROSSFOOT_LLM_BASE_URL` at any OpenAI compatible endpoint and
+add a key from `.env.example`:
 
-Honest scope. `crossfoot eval` scores the saved extractions from `crossfoot extract` when
-they exist and falls back to the offline routes when they do not, so running it on a fresh
-checkout scores CSV and digital PDF only and every scanned document reads as zero. The
-scanned tier numbers depend on which model read the page, and they depend on it more than
-on anything else here, so reproducing that column means using the model the scorecard
-names. `data/` is not committed, so the corpus, the extractions, and the ledgers are
-rebuilt locally rather than downloaded.
+```bash
+uv run crossfoot probe                                     # what is reachable
+uv run crossfoot extract --dataset data/dataset --split train --mode live
+uv run crossfoot extract --dataset data/dataset --split calibration --mode live
+uv run crossfoot extract --dataset data/dataset --split test --mode live --resume
+uv run crossfoot calibrate --dataset data/dataset          # fit, then choose
+uv run crossfoot eval --dataset data/dataset --split test --calibrate
+uv run crossfoot reconcile --dataset data/dataset --split test --mode end_to_end
+uv run crossfoot plots
+```
+
+**Honest scope.** `data/` is not committed, so the corpus, the extractions and the ledgers
+are rebuilt locally. The scanned tier numbers depend on which model read the page, more
+than on anything else here, so reproducing that column means using the model the scorecard
+names.
+
+**The corpus is byte reproducible, and that took a fix worth naming.** Augraphy's
+`DirtyRollers` calls `random.randint` from inside a numba compiled function, and numba
+implements the `random` module in nopython mode with its own generator state, which seeding
+the interpreter cannot reach. Only a seed call made from inside compiled code does. That
+augmentation is picked on a coin flip, which is why exactly 17 of the 32 `scan_heavy`
+documents used to differ rather than all of them.
 
 ## Design notes worth defending
 
-**Route by bytes, and distrust the word "unprocessable".** 26 of the 210 documents were
-being dropped before they were scored, and every one had a different cause wearing the same
-label. 17 XLSX files carried an `unrecognized` verdict from a router that predated the XLSX
-extractor, so the fix is that a resumed run re asks any document whose route now has an
-extractor rather than inheriting the old build's verdict. 8 scans had failed schema
-validation twice and been recorded as bad documents; every one of those responses had
-stopped at exactly 4096 tokens, and nothing below 4096 ever failed, which is what identified
-the serving context window rather than the model or the page. The last document was lost to
-a provider timeout and was simply absent from the denominator, which is the failure worth
-fearing most, because the scorecard still looked healthy.
+**Which model reads the page is the largest lever in this pipeline, by a distance.** On the
+same heavy photocopies, a small local model read 1 percent of reference fields correctly
+and the hosted model read 87 percent in a bake off. Everything downstream followed: the
+reference review rate fell from 64.6 percent to 6.3 percent without a line of the
+confidence code changing, because a scorer can only separate readings that differ in
+quality, and a reader that is wrong almost everywhere leaves nothing to separate. Before
+that was measured, the obvious fix looked like re reading failing fields at higher
+resolution. It was built, measured, and recovered nothing.
 
-The general lesson is that "the model cannot read this" is a conclusion three different
-infrastructure faults will happily impersonate: a stale router verdict, a truncating context
-window, and a dropped request. Each one was cheap to fix once named and expensive to leave,
-because each showed up as an accuracy number rather than as an error.
+**Distrust the word "unprocessable".** 26 of 210 documents were being dropped before they
+were scored, each for a different reason wearing the same label: a stale router verdict
+from a build that predated the XLSX extractor, answers truncated at exactly 4096 tokens by
+a serving context window, and one document lost to a provider timeout and simply absent
+from the denominator. That last one is the failure worth fearing, because the scorecard
+still looked healthy. "The model cannot read this" is a conclusion that several
+infrastructure faults will happily impersonate, and each shows up as an accuracy number
+rather than as an error.
 
-**The provider was chosen by probing, not by a leaderboard.** Every candidate got one
-direct call carrying an image and a `json_schema` response format, against its own default
-model. The capability matrix in `docs/contracts-phase2.md` is the result, and it is a
-matrix of what each provider would actually do rather than what a benchmark says it can.
-Groq answered that content must be a string and that it does not support the
-`json_schema` response format, so it is text only. Before that was known, a capability
-blind spillover chain with Groq sitting second lost 36 of 105 documents in one run: a 400
-is correctly classified as fatal, so those documents neither retried nor spilled over. The
-vision pool is now capability filtered where it is constructed.
-
-Probing kept paying. NVIDIA NIM advertises a `json_schema` response format and serves a two
-field schema happily, then returns 500 on the frozen document schema, six times out of six
-on an idle endpoint. The schema is still the specification, so it travels in the message
-instead of beside it and the reply is validated here, which is where it was validated
-anyway. Reading a provider's capability list would have missed that; a probe found it.
+**Providers were chosen by probing, not by a leaderboard.** Every candidate got one direct
+call carrying an image and a `json_schema` response format. Groq answered that content must
+be a string and that it does not support the format, so it is text only; before that was
+known, a capability blind spillover chain with Groq second lost 36 of 105 documents in one
+run, because a 400 neither retries nor spills over. NVIDIA NIM advertises the format, serves
+a two field schema, then returns 500 on the frozen document schema six times out of six, so
+the schema travels in the message instead and the reply is validated here either way. A
+capability list would have missed both.
 
 **With structured outputs, the schema is the specification, so do not restate it.** The
-extraction prompt is one sentence: extract every field and every line item from this
-document type. An earlier version described the shape in prose and listed the field names.
-The smaller vision model then returned a schema valid response with an empty line array on
-every scanned document, which read as an accuracy collapse rather than the prompt fault it
-was. Naming internal field names (`vin`, `line_amount`) sent it hunting for column headers
-the page never prints and it answered with correctly shaped rows whose every value was
-null: invalid output on two document types and all null rows on a third. The reasoning is
-kept in the docstring of `_user_prompt` in `src/crossfoot/extraction/llm_vision.py` so
-nobody helpfully adds the detail back.
+prompt is one sentence. An earlier version described the shape in prose and named internal
+fields like `vin` and `line_amount`, which sent the model hunting for column headers the
+page never prints; it answered with correctly shaped rows whose every value was null. That
+reasoning lives in the docstring of `_user_prompt` so nobody helpfully adds the detail back.
 
-**Oracle mode is a reporting requirement, not a debugging convenience.** Running the
-matching engine over ground truth lines and over extracted lines gives two numbers whose
-difference is attributable. Without it, "we caught 65 percent of discrepancies" is one
-number that could mean a weak matcher or a weak reader, and the fix for those is not the
-same fix. `reconcile()` takes a `StatementDoc` in both modes so it is provably the same
-code path.
+**Oracle mode is a reporting requirement, not a debugging convenience.** Running the matcher
+over ground truth lines and over extracted lines gives two numbers whose difference is
+attributable. Without it, "we caught 65 percent" could mean a weak matcher or a weak reader,
+and those need different fixes. `reconcile()` takes a `StatementDoc` in both modes so it is
+provably the same code path.
 
-**Correctness never depends on model reported coordinates.** Review crops come from
-pdfplumber word boxes on the deterministic path, and from row stripes detected by a
-horizontal projection profile on the vision path. A model supplied bounding box only
-refines a band it already agrees with, and is discarded silently when it fails a sanity
-check. Bounding boxes are never scored.
-
-Row detection succeeds less often than that description suggests, and a multi page scan
-never bands at all, because the row locator is only handed a row position for single page
-documents. The crop caption says which of the two a reviewer is looking at, so a whole page
-fallback tells them to find the value themselves rather than implying a tight crop that is
-not there.
+**Correctness never depends on model reported coordinates.** Crops come from pdfplumber word
+boxes on the deterministic path and detected row bands on the vision path. A model supplied
+box only refines a band it already agrees with, and is discarded when it fails a sanity
+check. Row detection succeeds less often than that suggests, and a multi page scan never
+bands at all, so the crop caption says which of the two a reviewer is looking at rather than
+implying a tight crop that is not there.
 
 ## Limitations
 
