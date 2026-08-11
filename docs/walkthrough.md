@@ -158,19 +158,18 @@ crossfoot eval --dataset data/dataset --split test
 crossfoot serve --dataset data/dataset --port 8000
 ```
 
-The scanned tier needs a vision model. Point `CROSSFOOT_LLM_BASE_URL` at any
-OpenAI compatible endpoint, local or hosted, and rerun `extract` with
-`--mode live`. The published run used more than one: free tier quota ran out
-partway through the corpus, so of the 22 scanned test documents, 13 were read by
-a local `qwen2.5vl` alone, 5 by `gemini-3.5-flash` alone, and 4 by a mixture.
-The scorecard names every model it called.
+The scanned tier needs a vision model that also honours a `json_schema`
+response format. Point `CROSSFOOT_LLM_BASE_URL` at any OpenAI compatible
+endpoint and rerun `extract` with `--mode live`. Two profiles are configured:
+NVIDIA NIM leads and Gemini sits behind it, so a run survives one of them
+running out of quota partway through the corpus. The scorecard names every
+model it called.
 
-Run `just model` first if you serve it locally. Ollama's default context is
-4096 tokens, which is enough for the prompt and most of an answer but not for
-the longest statements, so generation stops mid object and the JSON never
-parses. It reads as a document the model could not handle. Eight documents were
-recorded that way before the cause was found, every one of them cut off at
-exactly 4096 tokens.
+Which model reads the page turns out to matter more than anything else in this
+pipeline. On the same heavy photocopy, a small local model read one reference
+field in a hundred correctly and the hosted models read most of them. That is
+the single largest number in the project, and no amount of prompting, resampling
+or re-reading at higher resolution closed it.
 
 ## The review queue
 

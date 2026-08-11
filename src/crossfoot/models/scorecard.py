@@ -39,6 +39,16 @@ class CalibrationBin(BaseModel):
     count: int
 
 
+class PlattCell(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    field_family: FieldFamily
+    # Fit over the scorer's own logit rather than its confidence, so slope 1 with
+    # intercept 0 is the identity and the pair reproduces the rescaling exactly.
+    slope: float
+    intercept: float
+
+
 class ThresholdPoint(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -86,6 +96,10 @@ class Scorecard(BaseModel):
     documents_unprocessable: int
     field_accuracy: tuple[FieldAccuracyCell, ...]
     calibration: tuple[CalibrationBin, ...] = ()
+    # The correction the numbers above were measured under, one cell per field
+    # family. Empty is an uncalibrated run, which is why no separate flag exists:
+    # a boolean beside this could contradict it.
+    platt_scaling: tuple[PlattCell, ...] = ()
     threshold_sweep: tuple[ThresholdPoint, ...] = ()
     reconciliation: tuple[ReconCell, ...] = ()
     costs: tuple[CostCell, ...] = ()

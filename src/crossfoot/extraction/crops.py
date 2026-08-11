@@ -241,19 +241,6 @@ def table_rows(image: Image, expected_rows: int) -> TableRows | None:
     )
 
 
-def row_stripes(image: Image) -> tuple[tuple[int, int], ...]:
-    """Every band of print on the page, top to bottom, at full resolution.
-
-    The shape the profile sees, without the agreements that turn it into a
-    table. Rows of a table come from `table_rows`; this is the primitive under
-    it and the anchor a model's bbox has to overlap to be believed at all.
-    """
-    work, scale = _detection_image(image)
-    return tuple(
-        (round(top / scale), round(bottom / scale)) for top, bottom in _print_rows(_ink_mask(work))
-    )
-
-
 def decode_png(png_bytes: bytes) -> Image:
     image = cv2.imdecode(np.frombuffer(png_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:

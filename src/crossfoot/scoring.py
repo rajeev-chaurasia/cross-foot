@@ -36,15 +36,19 @@ from crossfoot.confidence.calibration import (
     FIT_SPLIT,
     THRESHOLD_SPLIT,
     ConfidenceSample,
+    PlattScaler,
     TrainingSample,
     choose_thresholds,
+    fit_platt_scalers,
     fit_scorers,
+    platt_cells,
+    rescale,
 )
 from crossfoot.confidence.scorer import LogisticModel
 from crossfoot.confidence.signals import attach_signals
 from crossfoot.constants import FieldFamily, ReviewStatus, SplitName
 from crossfoot.models.extraction import ExtractedDocument, ExtractedField, FieldSignals
-from crossfoot.models.scorecard import ThresholdPoint
+from crossfoot.models.scorecard import PlattCell, ThresholdPoint
 
 # What an unscored field publishes. Never an auto accept: a missing score is a
 # reason for a human to look, not a reason to skip one.
@@ -53,6 +57,7 @@ UNSCORED_STATUS = ReviewStatus.NEEDS_REVIEW
 
 FamilyModels = Mapping[FieldFamily, LogisticModel]
 FamilyThresholds = Mapping[FieldFamily, float]
+FamilyScalers = Mapping[FieldFamily, PlattScaler]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +66,9 @@ class ConfidencePass:
 
     documents: tuple[ExtractedDocument, ...]
     thresholds: tuple[ThresholdPoint, ...]
+    # The rescaling behind the confidences above, in the same shape a scorecard
+    # publishes. Empty is an uncalibrated pass, so the two cannot disagree.
+    platt_scaling: tuple[PlattCell, ...] = ()
 
     def threshold_for(self, family: FieldFamily) -> float | None:
         """The confidence a field of this family had to reach, or None if it had none."""
@@ -101,6 +109,7 @@ def apply_confidence(
     *,
     fit_split: SplitName = FIT_SPLIT,
     threshold_split: SplitName = THRESHOLD_SPLIT,
+    calibrate: bool = False,
 ) -> ConfidencePass:
     """Score every field of every document and set its status from its family's threshold.
 
@@ -111,6 +120,12 @@ def apply_confidence(
     Signals are recomputed rather than trusted: the scorers are fit on signals
     assembled by `attach_signals`, so scoring a field on anything else would feed
     the model a different feature row than it learned from.
+
+    `calibrate` puts every score through a Platt scaler fit on the threshold
+    split, the same correction `crossfoot eval --calibrate` reports, so a
+    reviewer reads the probability the published ECE describes instead of the raw
+    score. Off by default, because the review database is a deployed surface and
+    a caller has to ask for the change.
     """
     prepared = [attach_signals(doc) for doc in documents]
     by_field = {
@@ -120,11 +135,17 @@ def apply_confidence(
     }
     rows = _labelled(by_field, labels)
     models = _fit(rows, fit_split)
-    thresholds = _thresholds(rows, models, threshold_split)
+    samples = _samples(rows, models, threshold_split)
+    scalers: FamilyScalers = fit_platt_scalers(samples, split=threshold_split) if calibrate else {}
+    # Rescaling happens before the threshold is chosen, never after: a threshold
+    # picked on raw scores names a different operating point once the scores
+    # underneath it move.
+    thresholds = choose_thresholds(rescale(samples, scalers), split=threshold_split)
     by_family = {point.field_family: point.threshold for point in thresholds}
     return ConfidencePass(
-        documents=tuple(_scored(doc, models, by_family) for doc in prepared),
+        documents=tuple(_scored(doc, models, by_family, scalers) for doc in prepared),
         thresholds=thresholds,
+        platt_scaling=platt_cells(scalers),
     )
 
 
@@ -142,10 +163,11 @@ def _fit(rows: Sequence[_Labelled], split: SplitName) -> FamilyModels:
     return fit_scorers(samples, split=split)
 
 
-def _thresholds(
+def _samples(
     rows: Sequence[_Labelled], models: FamilyModels, split: SplitName
-) -> tuple[ThresholdPoint, ...]:
-    samples = [
+) -> list[ConfidenceSample]:
+    """One split's rows scored by their family model, tagged so the guards can check them."""
+    return [
         ConfidenceSample(
             field_family=row.field_family,
             confidence=models[row.field_family].predict(row.signals),
@@ -155,7 +177,6 @@ def _thresholds(
         for row in rows
         if row.split is split and row.field_family in models
     ]
-    return choose_thresholds(samples, split=split)
 
 
 def _labelled(
@@ -172,22 +193,28 @@ def _labelled(
 
 
 def _scored(
-    doc: ExtractedDocument, models: FamilyModels, thresholds: FamilyThresholds
+    doc: ExtractedDocument,
+    models: FamilyModels,
+    thresholds: FamilyThresholds,
+    scalers: FamilyScalers,
 ) -> ExtractedDocument:
     return doc.model_copy(
         update={
             "header_fields": tuple(
-                _scored_field(field, models, thresholds) for field in doc.header_fields
+                _scored_field(field, models, thresholds, scalers) for field in doc.header_fields
             ),
             "line_fields": tuple(
-                _scored_field(field, models, thresholds) for field in doc.line_fields
+                _scored_field(field, models, thresholds, scalers) for field in doc.line_fields
             ),
         }
     )
 
 
 def _scored_field(
-    field: ExtractedField, models: FamilyModels, thresholds: FamilyThresholds
+    field: ExtractedField,
+    models: FamilyModels,
+    thresholds: FamilyThresholds,
+    scalers: FamilyScalers,
 ) -> ExtractedField:
     model = models.get(field.family)
     threshold = thresholds.get(field.family)
@@ -195,6 +222,14 @@ def _scored_field(
         return field.model_copy(
             update={"confidence": UNSCORED_CONFIDENCE, "status": UNSCORED_STATUS}
         )
+    scaler = scalers.get(field.family)
     confidence = model.predict(field.signals)
+    # A Platt scaler is increasing, and the threshold below was chosen from
+    # scores it had already been applied to, so the correction moves the number
+    # displayed beside a field and not which fields the review queue holds: the
+    # threshold moves with the scores. A reader seeing the confidence change
+    # while the queue stands still is looking at that, not at a bug.
+    if scaler is not None:
+        confidence = scaler.apply(confidence)
     status = ReviewStatus.AUTO_ACCEPTED if confidence >= threshold else ReviewStatus.NEEDS_REVIEW
     return field.model_copy(update={"confidence": confidence, "status": status})

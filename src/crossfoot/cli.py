@@ -136,11 +136,14 @@ def eval(
     split: Annotated[
         str, typer.Option(help="Split to score: train, calibration, or test.")
     ] = "train",
+    calibrate: Annotated[
+        bool, typer.Option(help="Put scores through a Platt scaler fit on calibration.")
+    ] = False,
 ) -> None:
     """Run the offline eval over every routed tier and write a scorecard JSON."""
     from crossfoot.evals.runner import run_eval  # lazy: keeps other commands fast
 
-    scorecard = run_eval(dataset, _split_name(split), cost_db=COST_DB)
+    scorecard = run_eval(dataset, _split_name(split), cost_db=COST_DB, calibrate=calibrate)
     for cell in scorecard.field_accuracy:
         accuracy = cell.correct_canonical / cell.fields_expected
         typer.echo(
@@ -483,7 +486,11 @@ async def _extract_split(
                     cache=cache,
                     wait_for_cooldown=True,
                 )
-                vision = VisionExtractor(vision_pool, run_id=run_id)
+                vision = VisionExtractor(
+                    vision_pool,
+                    run_id=run_id,
+                    schema_in_prompt=not settings.custom_json_schema,
+                )
             return vision
 
     async def extract_one(doc_id: str) -> DocumentOutcome:

@@ -9,15 +9,15 @@ scorecard. Both the requested split and the split tag on every row are checked.
 import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 import numpy as np
 
-from crossfoot.confidence.scorer import LogisticModel, fit, fit_logistic, probability
+from crossfoot.confidence.scorer import LogisticModel, fit, fit_logistic, logit, probability
 from crossfoot.constants import FieldFamily, SplitName
 from crossfoot.models.extraction import FieldSignals
-from crossfoot.models.scorecard import CalibrationBin, ThresholdPoint
+from crossfoot.models.scorecard import CalibrationBin, PlattCell, ThresholdPoint
 
 # Lowest auto-accept precision each family must hold before a threshold is usable.
 PRECISION_TARGETS: dict[FieldFamily, float] = {
@@ -32,6 +32,11 @@ BIN_COUNT = 10
 
 # Test ECE above this calls for Platt scaling fit on the calibration split.
 MAX_EXPECTED_CALIBRATION_ERROR = 0.05
+
+# A Platt fit reads a logit spanning several units where a signal row spans
+# [0, 1], so the shared fixed schedule needs more steps to reach the same
+# optimum. Measured on this corpus: the fit stops moving well before here.
+PLATT_ITERATIONS = 2000
 
 FIT_SPLIT = SplitName.TRAIN
 THRESHOLD_SPLIT = SplitName.CALIBRATION
@@ -66,13 +71,24 @@ class ConfidenceSample:
 
 @dataclass(frozen=True, slots=True)
 class PlattScaler:
-    """Single-feature logistic rescaling of an already-scored confidence."""
+    """Two-parameter logistic rescaling of an already-scored confidence.
+
+    The linear term is the scorer's own logit rather than its confidence, which
+    is what makes slope 1 and intercept 0 the identity: a family that needs no
+    correction can be fit and left where it was. On a confidence the identity is
+    not expressible, so fitting one would move a calibrated family off its mark.
+
+    Increasing in confidence for any positive slope, so rescaling reorders
+    nothing and cannot change which fields a threshold accepts. A fit returns a
+    negative slope only for a family whose confidence points the wrong way,
+    which is a broken scorer rather than a rescaling to publish.
+    """
 
     slope: float
     intercept: float
 
     def apply(self, confidence: float) -> float:
-        return probability(self.slope * confidence + self.intercept)
+        return probability(self.slope * logit(confidence) + self.intercept)
 
 
 def fit_scorers(
@@ -99,12 +115,65 @@ def choose_thresholds(
 
 
 def fit_platt_scaling(samples: Sequence[ConfidenceSample], *, split: SplitName) -> PlattScaler:
-    """Rescaling for a family whose test ECE exceeds the ceiling; calibration split only."""
+    """Rescaling for one family's confidences; calibration split only.
+
+    The calibration split and not TRAIN: a scorer's scores on the rows it was
+    fit on are optimistic, so a correction fit there would learn nothing.
+    """
     _require_split(samples, THRESHOLD_SPLIT, split, "fitting platt scaling")
-    features = np.array([[1.0, sample.confidence] for sample in samples])
-    labels = np.array([float(sample.correct) for sample in samples])
-    weights = fit_logistic(features, labels)
-    return PlattScaler(slope=float(weights[1]), intercept=float(weights[0]))
+    return _platt(samples)
+
+
+def fit_platt_scalers(
+    samples: Sequence[ConfidenceSample], *, split: SplitName
+) -> Mapping[FieldFamily, PlattScaler]:
+    """One scaler per family present in the calibration rows.
+
+    Every family is fit, not only the ones over the ceiling. Which families to
+    correct cannot be read off the test ECE without letting the held out split
+    choose the model, and the identity lies inside this family of curves, so a
+    family already under the ceiling is not thrown off its mark by being fit.
+    """
+    _require_split(samples, THRESHOLD_SPLIT, split, "fitting platt scaling")
+    grouped: defaultdict[FieldFamily, list[ConfidenceSample]] = defaultdict(list)
+    for sample in samples:
+        grouped[sample.field_family].append(sample)
+    return {family: _platt(rows) for family, rows in grouped.items()}
+
+
+def rescale(
+    samples: Sequence[ConfidenceSample], scalers: Mapping[FieldFamily, PlattScaler]
+) -> tuple[ConfidenceSample, ...]:
+    """Each confidence through its family's scaler; a family with none passes through.
+
+    The split tag rides along untouched, so a rescaled row is still guarded by
+    whatever it is handed to next. An empty mapping is the uncalibrated pipeline
+    exactly as it was, which is what makes the correction optional.
+    """
+    return tuple(
+        sample
+        if (scaler := scalers.get(sample.field_family)) is None
+        else replace(sample, confidence=scaler.apply(sample.confidence))
+        for sample in samples
+    )
+
+
+def platt_cells(scalers: Mapping[FieldFamily, PlattScaler]) -> tuple[PlattCell, ...]:
+    """The applied scalers as scorecard cells, in the order the sweep publishes families.
+
+    A scorecard has to state the correction that produced its numbers, so the two
+    parameters travel with the figures rather than in prose beside them. An empty
+    mapping gives an empty collection: an uncalibrated run says so by carrying
+    nothing, and there is no second field to disagree with.
+    """
+    return tuple(
+        PlattCell(
+            field_family=family,
+            slope=scalers[family].slope,
+            intercept=scalers[family].intercept,
+        )
+        for family in sorted(scalers, key=lambda family: _FAMILY_ORDER[family])
+    )
 
 
 def sweep_point(
@@ -166,6 +235,18 @@ def _require_split(
     foreign = sorted({sample.split for sample in samples if sample.split is not allowed})
     if foreign:
         raise SplitDisciplineError(f"{purpose} on {allowed} was handed {', '.join(foreign)} rows")
+
+
+def _platt(samples: Sequence[ConfidenceSample]) -> PlattScaler:
+    """One sigmoid over one linear term.
+
+    Two parameters and no more: the calibration split holds a few hundred rows
+    per family, which isotonic regression would fit the noise of.
+    """
+    features = np.array([[1.0, logit(sample.confidence)] for sample in samples])
+    labels = np.array([float(sample.correct) for sample in samples])
+    weights = fit_logistic(features, labels, iterations=PLATT_ITERATIONS)
+    return PlattScaler(slope=float(weights[1]), intercept=float(weights[0]))
 
 
 def _best_threshold(family: FieldFamily, samples: Sequence[ConfidenceSample]) -> ThresholdPoint:

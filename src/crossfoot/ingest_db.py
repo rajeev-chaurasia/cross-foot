@@ -94,7 +94,19 @@ _COST_SCHEMA = "costs"
 _ATTACH_COSTS = f"ATTACH DATABASE ? AS {_COST_SCHEMA}"
 _DETACH_COSTS = f"DETACH DATABASE {_COST_SCHEMA}"
 _COPY_LEDGER = f"INSERT OR REPLACE INTO llm_calls SELECT * FROM {_COST_SCHEMA}.llm_calls"
+# Scoped to the attempt whose extractions this database was built from. A run id
+# names a split and a dataset rather than one invocation, so the ledger also holds
+# calls from attempts that were discarded, and copying those would price these
+# documents using work that produced none of them.
+_COPY_LEDGER_SINCE = f"""
+INSERT OR REPLACE INTO llm_calls
+SELECT * FROM {_COST_SCHEMA}.llm_calls WHERE run_id = ? AND created_at >= ?
+"""
 _COUNT_LEDGER = "SELECT COUNT(*) FROM llm_calls"
+_SELECT_ATTEMPT_STARTS = "SELECT run_id, MIN(created_at) FROM run_state GROUP BY run_id"
+# Where `crossfoot extract` checkpoints. Beside the cost ledger it names which
+# calls belong to the attempt whose output survived.
+DEFAULT_DATA_DIR = Path("data")
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,18 +304,43 @@ def _write_exceptions(
 
 
 def _copy_cost_ledger(connection: sqlite3.Connection, cost_db: Path) -> int:
-    """Bring phase 2's llm_calls into the same file, since the summary tile reads it."""
+    """Bring phase 2's llm_calls into the same file, since the summary tile reads it.
+
+    Copies the surviving attempt per run where the run state says when that was,
+    and everything otherwise, because a database that cannot tell the attempts
+    apart should report the whole ledger rather than an arbitrary part of it.
+    """
     if not cost_db.is_file():
         return 0
+    starts = _attempt_starts()
     # ATTACH and DETACH cannot run inside a transaction, so the copy owns its own.
     connection.execute(_ATTACH_COSTS, (str(cost_db),))
     try:
         with connection:
-            connection.execute(_COPY_LEDGER)
+            if starts:
+                for run_id, started_at in starts.items():
+                    connection.execute(_COPY_LEDGER_SINCE, (run_id, started_at))
+            else:
+                connection.execute(_COPY_LEDGER)
         (total,) = connection.execute(_COUNT_LEDGER).fetchone()
     finally:
         connection.execute(_DETACH_COSTS)
     return int(total)
+
+
+def _attempt_starts() -> dict[str, str]:
+    """When each extraction run last began, from the run state checkpoints."""
+    state_db = DEFAULT_DATA_DIR / "runstate.db"
+    if not state_db.is_file():
+        return {}
+    connection = sqlite3.connect(state_db)
+    try:
+        rows = connection.execute(_SELECT_ATTEMPT_STARTS).fetchall()
+    except sqlite3.DatabaseError:
+        return {}
+    finally:
+        connection.close()
+    return {str(run_id): str(started) for run_id, started in rows if started is not None}
 
 
 def _routing(

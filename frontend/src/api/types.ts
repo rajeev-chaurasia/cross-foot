@@ -318,6 +318,14 @@ export interface CalibrationBin {
   count: number
 }
 
+/** Empty when the run published the scorer's raw output. Fit over the scorer's logit,
+ *  so slope 1 and intercept 0 is the identity and the pair rebuilds the rescaling. */
+export interface PlattCell {
+  field_family: FieldFamily
+  slope: number
+  intercept: number
+}
+
 export interface ThresholdPoint {
   field_family: FieldFamily
   threshold: number
@@ -357,6 +365,7 @@ export interface Scorecard {
   documents_unprocessable: number
   field_accuracy: FieldAccuracyCell[]
   calibration: CalibrationBin[]
+  platt_scaling: PlattCell[]
   threshold_sweep: ThresholdPoint[]
   reconciliation: ReconCell[]
   costs: CostCell[]

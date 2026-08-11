@@ -445,6 +445,10 @@ export const METRICS: MetricsResponse = {
       { field_family: 'amount', mean_confidence: 0.91, empirical_accuracy: 0.88, count: 120 },
       { field_family: 'reference', mean_confidence: 0.55, empirical_accuracy: 0.51, count: 80 },
     ],
+    platt_scaling: [
+      { field_family: 'amount', slope: 0.7213, intercept: -0.3114 },
+      { field_family: 'reference', slope: 0.5502, intercept: -1.2077 },
+    ],
     threshold_sweep: SWEEP,
     reconciliation: [],
     costs: [],

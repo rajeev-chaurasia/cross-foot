@@ -76,19 +76,36 @@ def fit(family: FieldFamily, samples: Sequence[tuple[FieldSignals, bool]]) -> Lo
     return LogisticModel(field_family=family, weights=fit_logistic(features, labels))
 
 
-def fit_logistic(features: Matrix, labels: Vector) -> Vector:
-    """Weights for a design matrix whose first column is the intercept."""
+def fit_logistic(features: Matrix, labels: Vector, *, iterations: int = ITERATIONS) -> Vector:
+    """Weights for a design matrix whose first column is the intercept.
+
+    The schedule is fixed, so the step count is what a caller whose features span
+    a wider range than a signal row has to raise to reach the same optimum.
+    """
     weights = np.zeros(features.shape[1], dtype=np.float64)
-    for _ in range(ITERATIONS):
+    for _ in range(iterations):
         residual = _sigmoid(features @ weights) - labels
         gradient = features.T @ residual / len(labels) + L2_PENALTY * weights
         weights = weights - LEARNING_RATE * gradient
     return weights
 
 
-def probability(logit: float) -> float:
+def probability(logit_value: float) -> float:
     """Logistic link shared by the family scorers and the calibration rescaler."""
-    return float(_sigmoid(np.asarray(logit, dtype=np.float64)))
+    return float(_sigmoid(np.asarray(logit_value, dtype=np.float64)))
+
+
+def logit(confidence: float) -> float:
+    """Inverse of `probability`, saturating at the same bound the link does.
+
+    A confidence of exactly 0 or 1 is reachable in float64 once the link clips,
+    so the inverse has to name a finite logit for both rather than diverge.
+    """
+    if confidence <= 0.0:
+        return -LOGIT_CLIP
+    if confidence >= 1.0:
+        return LOGIT_CLIP
+    return float(np.clip(np.log(confidence / (1.0 - confidence)), -LOGIT_CLIP, LOGIT_CLIP))
 
 
 def _design_row(features: tuple[float, ...]) -> Vector:

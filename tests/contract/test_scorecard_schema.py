@@ -22,6 +22,7 @@ from crossfoot.models.scorecard import (
     CalibrationBin,
     CostCell,
     FieldAccuracyCell,
+    PlattCell,
     ReconCell,
     Scorecard,
     ThresholdPoint,
@@ -75,6 +76,7 @@ def build_scorecard() -> Scorecard:
                 count=120,
             ),
         ),
+        platt_scaling=(PlattCell(field_family=FieldFamily.DATE, slope=0.7213, intercept=-0.3114),),
         threshold_sweep=(
             ThresholdPoint(
                 field_family=FieldFamily.TEXT,

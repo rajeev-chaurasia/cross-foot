@@ -15,5 +15,5 @@ frontend/dist/
 playwright-report/
 test-results/
 
-# Agent probe scripts and throwaway experiments
+# Throwaway experiments and probe scripts
 scratch/

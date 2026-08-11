@@ -29,6 +29,12 @@ the two numbers side by side and can judge the change instead of taking it on tr
 
 ## LLM strategy
 
+Pool change, 2026-08-10: the active pool is the custom profile against NVIDIA NIM
+followed by `gemini`, both probed for vision under a `json_schema` response format.
+Groq, OpenRouter and Mistral are no longer keyed. The tables in this document are the
+2026-08-06 probe evidence and are kept as the record of what each provider actually
+did; they no longer describe which providers a run will call.
+
 Cloud free tiers are the primary path and the source of every published number:
 Gemini for vision, Groq and OpenRouter for spillover, all through the existing
 OpenAI-compatible client with a configurable `base_url`. A self-hosted lane on a local
@@ -293,7 +299,9 @@ raising `NoProviderConfiguredError` naming the missing capability when nothing i
 `profile_pool(requires=VISION_CAPABILITIES)`, which is vision plus `json_schema`. A
 capability blind chain is what lost 36 of 105 documents on 2026-08-06: Groq sat second
 in the vision chain and answered 400, which is correctly classified as RAISE, so those
-documents neither retried nor spilled over. Groq stays configured for text only work.
+documents neither retried nor spilled over. Groq was kept for text only work while it
+was keyed, and the binding rule above is what makes dropping it a configuration change
+rather than a code change.
 
 Per provider rate limit defaults live in `constants.PROVIDER_RATE_LIMITS`, applied per
 profile by `SpilloverClient` rather than as one shared limiter, since a global limiter

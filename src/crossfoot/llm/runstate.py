@@ -56,6 +56,7 @@ ORDER BY doc_order
 """
 
 _SELECT_STATUS = "SELECT status FROM run_state WHERE run_id = ? AND doc_id = ?"
+_SELECT_RUN_START = "SELECT MIN(created_at) AS started_at FROM run_state WHERE run_id = ?"
 _SELECT_RESULT = "SELECT result_json FROM run_state WHERE run_id = ? AND doc_id = ?"
 
 _UPDATE_STATUS = """
@@ -96,6 +97,17 @@ class RunState:
         if record is None:
             raise UnknownDocumentError(f"{doc_id} is not part of run {run_id}")
         return DocStatus(record["status"])
+
+    def run_started_at(self, run_id: str) -> str | None:
+        """When this run first checkpointed a document, or None when it never has.
+
+        `start_run` rewrites the run's rows, so this is the surviving attempt's
+        start rather than the first time the id was ever used. That is what makes
+        it usable for scoping a ledger read to the attempt whose output was kept.
+        """
+        record = self._connection.execute(_SELECT_RUN_START, (run_id,)).fetchone()
+        started = None if record is None else record["started_at"]
+        return None if started is None else str(started)
 
     def result(self, run_id: str, doc_id: str) -> str | None:
         record = self._connection.execute(_SELECT_RESULT, (run_id, doc_id)).fetchone()

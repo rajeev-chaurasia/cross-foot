@@ -141,6 +141,28 @@
         "title": "FieldFamily",
         "type": "string"
       },
+      "PlattCell": {
+        "properties": {
+          "field_family": {
+            "$ref": "#/$defs/FieldFamily"
+          },
+          "intercept": {
+            "title": "Intercept",
+            "type": "number"
+          },
+          "slope": {
+            "title": "Slope",
+            "type": "number"
+          }
+        },
+        "required": [
+          "field_family",
+          "slope",
+          "intercept"
+        ],
+        "title": "PlattCell",
+        "type": "object"
+      },
       "Provider": {
         "enum": [
           "custom",
@@ -314,6 +336,14 @@
         "default": "",
         "title": "Notes",
         "type": "string"
+      },
+      "platt_scaling": {
+        "default": [],
+        "items": {
+          "$ref": "#/$defs/PlattCell"
+        },
+        "title": "Platt Scaling",
+        "type": "array"
       },
       "reconciliation": {
         "default": [],

@@ -23,6 +23,7 @@ from augraphy import (
     LightingGradient,
     SubtleNoise,
 )
+from numba import njit
 
 from crossfoot import pdfium
 
@@ -42,6 +43,20 @@ NP_SEED_MODULUS = 2**32  # numpy accepts 32-bit seeds only
 IMG2PDF_FIXED_DATE = datetime(2026, 1, 1, tzinfo=UTC)
 
 PipelineBuilder = Callable[[random.Random], Any]
+
+
+@njit(cache=True)
+def _seed_numba_rng(seed: int) -> None:
+    """Seed the generator state numba keeps for compiled code.
+
+    DirtyRollers draws from `random` inside an njit function, and numba's
+    nopython `random` and `np.random` are separate generators that the
+    interpreter's seed calls cannot reach. Only a call from inside compiled
+    code seeds them, and numba exposes no way to read that state back, so it
+    cannot be saved and restored the way the interpreter's state is.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
 
 
 def _light_pipeline(rng: random.Random) -> Any:
@@ -97,7 +112,8 @@ def degrade_to_scan(pdf_path: Path, profile: str, seed: int) -> None:
     pipeline = builder(random.Random(seed))
 
     # Augraphy draws from the global random and numpy generators; seed both per
-    # page for determinism, then restore whatever state the caller had.
+    # page for determinism, then restore whatever state the caller had. Numba's
+    # own generators are seeded alongside them but cannot be restored.
     python_state = random.getstate()
     numpy_state = np.random.get_state()
     page_images: list[bytes] = []
@@ -110,8 +126,14 @@ def degrade_to_scan(pdf_path: Path, profile: str, seed: int) -> None:
             for index in range(len(document)):
                 bitmap = document[index].render(scale=SCAN_DPI / PDF_POINTS_PER_INCH)
                 image = bitmap.to_numpy()
+                page_seed = (seed + index) % NP_SEED_MODULUS
+                # All three calls are load bearing. The first two seed the
+                # interpreter's generators, which reach every augmentation
+                # running as Python; the third reaches the ones running as
+                # compiled code, and nothing called from here can replace it.
                 random.seed(seed + index)
-                np.random.seed((seed + index) % NP_SEED_MODULUS)
+                np.random.seed(page_seed)
+                _seed_numba_rng(page_seed)
                 augmented = np.clip(pipeline(image), 0, 255).astype(np.uint8)
                 success, encoded = cv2.imencode(
                     ".jpg", augmented, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY]

@@ -18,10 +18,14 @@ from crossfoot.confidence.calibration import (
     FIT_SPLIT,
     THRESHOLD_SPLIT,
     ConfidenceSample,
+    PlattScaler,
     TrainingSample,
     choose_thresholds,
+    fit_platt_scalers,
     fit_scorers,
+    platt_cells,
     reliability_bins,
+    rescale,
     sweep_point,
 )
 from crossfoot.confidence.scorer import LogisticModel
@@ -45,7 +49,7 @@ from crossfoot.extraction.xlsx import extract_xlsx
 from crossfoot.models.extraction import ExtractedDocument, ExtractedField, FieldSignals, IngestError
 from crossfoot.models.ledger import LedgerBook
 from crossfoot.models.manifest import DatasetManifest, ManifestRecord
-from crossfoot.models.scorecard import CalibrationBin, Scorecard, ThresholdPoint
+from crossfoot.models.scorecard import CalibrationBin, PlattCell, Scorecard, ThresholdPoint
 from crossfoot.models.statement import StatementDoc, StatementLine
 
 _LOGGER = logging.getLogger(__name__)
@@ -138,15 +142,30 @@ class ConfidenceSections:
     scored_fields: int = 0
     auto_accept_precision: float = 0.0
     review_rate: float = 0.0
+    # The rescaling the numbers above were measured under, headed for the
+    # scorecard. A reliability diagram means a different thing depending on it
+    # and a reader cannot tell the two apart by eye, so the run publishes the
+    # cells themselves rather than a claim that a correction happened.
+    platt_scaling: tuple[PlattCell, ...] = ()
+
+    @property
+    def calibrated(self) -> bool:
+        """Read off the published cells, so the notes cannot contradict the scorecard."""
+        return bool(self.platt_scaling)
 
     def notes(self, split: SplitName) -> str:
         if not self.scored_fields:
             return ""
+        scaling = (
+            f" Scores Platt scaled on {THRESHOLD_SPLIT} before the threshold was chosen."
+            if self.calibrated
+            else ""
+        )
         return (
             f" Confidence fit on {FIT_SPLIT}, thresholds chosen on {THRESHOLD_SPLIT},"
             f" reported on {split}: {self.scored_fields} scored fields,"
             f" {self.auto_accept_precision:.2%} auto accept precision"
-            f" at {self.review_rate:.2%} review."
+            f" at {self.review_rate:.2%} review.{scaling}"
         )
 
 
@@ -216,6 +235,8 @@ def run_eval(
     split: SplitName,
     extractions_dir: Path | None = None,
     cost_db: Path | None = None,
+    *,
+    calibrate: bool = False,
 ) -> Scorecard:
     """Score a split and write a scorecard.
 
@@ -233,7 +254,9 @@ def run_eval(
     run = _saved_run(manifest, split, extractions_dir) or extract_split(
         dataset_dir, manifest, split
     )
-    sections = confidence_sections(manifest, split, extractions_dir or DEFAULT_EXTRACTIONS_DIR)
+    sections = confidence_sections(
+        manifest, split, extractions_dir or DEFAULT_EXTRACTIONS_DIR, calibrate=calibrate
+    )
     now = datetime.now(UTC)
     git_sha = git_short_sha()
     return Scorecard(
@@ -249,6 +272,7 @@ def run_eval(
         documents_unprocessable=len(run.unprocessable),
         field_accuracy=score_fields(run.documents, manifest, split),
         calibration=sections.calibration,
+        platt_scaling=sections.platt_scaling,
         threshold_sweep=sections.threshold_sweep,
         notes=run_notes(run) + sections.notes(split),
     )
@@ -260,14 +284,34 @@ def models_used(config_hash: str, split: SplitName, cost_db: Path) -> tuple[str,
     Public because both scorecard write sites need it and neither may guess: a
     scorecard that publishes an empty tuple is saying it has no record, which is
     not the same claim as no model having run.
+
+    Scoped to the attempt whose extractions survived. A run id names a split and
+    a dataset rather than one invocation, so an abandoned attempt leaves calls
+    behind under the same id and would otherwise be published as a model that
+    produced these numbers.
     """
     from crossfoot.ingest_db import extraction_run_id
 
-    return models_for_run(cost_db, extraction_run_id(split, config_hash))
+    run_id = extraction_run_id(split, config_hash)
+    return models_for_run(cost_db, run_id, since=_attempt_started_at(run_id))
+
+
+def _attempt_started_at(run_id: str) -> str | None:
+    """When the surviving attempt first checkpointed, or None when nothing did."""
+    from crossfoot.llm.runstate import RunState
+
+    state_db = Path("data/runstate.db")
+    if not state_db.is_file():
+        return None
+    state = RunState(state_db)
+    try:
+        return state.run_started_at(run_id)
+    finally:
+        state.close()
 
 
 def confidence_sections(
-    manifest: DatasetManifest, split: SplitName, extractions_dir: Path
+    manifest: DatasetManifest, split: SplitName, extractions_dir: Path, *, calibrate: bool = False
 ) -> ConfidenceSections:
     """Reliability and the threshold sweep for one split, or nothing when a fit is impossible.
 
@@ -275,6 +319,12 @@ def confidence_sections(
     `choose_thresholds` refuse any split but their own, so the only decision made
     here is which rows to hand them. The reported split is measured at the
     threshold that came back and never contributes to choosing it.
+
+    `calibrate` puts every score through a Platt scaler fit on CALIBRATION, and
+    the scalers themselves are published so the numbers here are reproducible
+    from the scorecard alone. Rescaling happens before the threshold is chosen,
+    never after: a threshold picked on uncalibrated scores names a different
+    operating point once the scores underneath it move.
 
     The sweep is laid out the way `crossfoot.evals.plots.family_sweeps` reads it:
     per family, the calibration curve in ascending threshold order, then one last
@@ -296,6 +346,14 @@ def confidence_sections(
     reported_samples = _samples(reported, models, split)
     if not calibration_samples or not reported_samples:
         return ConfidenceSections()
+
+    scalers: Mapping[FieldFamily, PlattScaler] = (
+        fit_platt_scalers(calibration_samples, split=THRESHOLD_SPLIT) if calibrate else {}
+    )
+    # An empty mapping passes every score through untouched, so the uncalibrated
+    # path is the same two lines rather than a branch that could drift from them.
+    calibration_samples = list(rescale(calibration_samples, scalers))
+    reported_samples = list(rescale(reported_samples, scalers))
 
     bins: list[CalibrationBin] = []
     sweep: list[ThresholdPoint] = []
@@ -321,6 +379,7 @@ def confidence_sections(
         scored_fields=scored,
         auto_accept_precision=correct_accepted / accepted if accepted else 1.0,
         review_rate=1.0 - accepted / scored,
+        platt_scaling=platt_cells(scalers),
     )
 
 

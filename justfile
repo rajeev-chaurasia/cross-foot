@@ -31,11 +31,6 @@ test-web:
 probe:
     uv run crossfoot probe
 
-# Build the local vision model the published numbers were produced against.
-# Point CROSSFOOT_LLM_MODEL at the name this creates before a live run.
-model:
-    ollama create qwen2.5vl-crossfoot:7b -f ollama/qwen2.5vl-crossfoot.Modelfile
-
 # Regenerate the corpus from the published seed and check the deterministic tiers
 # against the committed scorecard. Writes to its own directory so the corpus the
 # published extractions were read from is never overwritten.

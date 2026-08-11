@@ -177,6 +177,9 @@ _SELECT_RUN = "SELECT * FROM llm_calls WHERE run_id = ? ORDER BY rowid"
 # Every attempt is written here, successes and failures alike, so this answers
 # "which models were asked" rather than "which models returned something".
 _SELECT_MODELS = "SELECT DISTINCT model FROM llm_calls WHERE run_id = ? ORDER BY model"
+_SELECT_MODELS_SINCE = (
+    "SELECT DISTINCT model FROM llm_calls WHERE run_id = ? AND created_at >= ? ORDER BY model"
+)
 
 _TOTALS = """
 SELECT
@@ -196,7 +199,7 @@ _DOC_COLUMN = "doc_id"
 _PROVIDER_COLUMN = "provider"
 
 
-def models_for_run(db_path: Path, run_id: str) -> tuple[str, ...]:
+def models_for_run(db_path: Path, run_id: str, *, since: str | None = None) -> tuple[str, ...]:
     """The distinct models that served a run, named alphabetically.
 
     A scorecard has to say which models produced the numbers it publishes, and
@@ -205,12 +208,20 @@ def models_for_run(db_path: Path, run_id: str) -> tuple[str, ...]:
     absent ledger, or a ledger without the table, returns nothing, and nothing
     means the run recorded no models rather than that no model was called. The
     two are not the same thing and no reader may collapse them.
+
+    A run id names a split and a dataset, not one invocation, so an abandoned
+    attempt leaves its calls behind under the same id. `since` keeps the answer
+    to the attempt whose output survived. The ledger itself is append only and
+    still holds every call, because what was spent is not editable by whether the
+    output was kept.
     """
     if not db_path.is_file():
         return ()
     connection = sqlite3.connect(db_path)
     try:
-        rows = connection.execute(_SELECT_MODELS, (run_id,)).fetchall()
+        query = _SELECT_MODELS if since is None else _SELECT_MODELS_SINCE
+        arguments = (run_id,) if since is None else (run_id, since)
+        rows = connection.execute(query, arguments).fetchall()
     except sqlite3.DatabaseError:
         return ()
     finally:

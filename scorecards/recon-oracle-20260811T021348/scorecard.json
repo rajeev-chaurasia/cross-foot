@@ -1,7 +1,7 @@
 {
-  "run_id": "recon-oracle-20260810T053715",
-  "created_at": "2026-08-10T05:37:15.955499Z",
-  "git_sha": "a134f91",
+  "run_id": "recon-oracle-20260811T021348",
+  "created_at": "2026-08-11T02:13:48.036592Z",
+  "git_sha": "fe5842e",
   "dataset_config_hash": "e14a532c4bcaff5ee56bda0841b18db68855990c0f683fac63980771f3523343",
   "master_seed": 42,
   "split": "test",
@@ -11,6 +11,7 @@
   "documents_unprocessable": 0,
   "field_accuracy": [],
   "calibration": [],
+  "platt_scaling": [],
   "threshold_sweep": [],
   "reconciliation": [
     {

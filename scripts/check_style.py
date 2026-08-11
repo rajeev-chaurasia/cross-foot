@@ -1,7 +1,12 @@
 """Style guard run by pre-commit on staged files and commit messages.
 
-Rejects em-dashes and attribution trailers. Repo policy: plain hyphens,
-commas, or colons instead of em-dashes; commits carry no tool attribution.
+Rejects long dashes and attribution trailers. Repo policy: a comma, a colon, a
+semicolon, or two sentences in place of a dash that is not a plain hyphen;
+commits carry no tool attribution.
+
+The en-dash and the figure dash are here for the same reason the em-dash is.
+They render as the same long stroke at body size, so a file that swapped one
+for the other would read as though the policy had been followed.
 """
 
 from __future__ import annotations
@@ -10,7 +15,12 @@ import re
 import sys
 from pathlib import Path
 
-BANNED_CHARS = {"\u2014": "em-dash", "\u2015": "horizontal bar"}
+BANNED_CHARS = {
+    "\u2012": "figure dash",
+    "\u2013": "en-dash",
+    "\u2014": "em-dash",
+    "\u2015": "horizontal bar",
+}
 BANNED_PHRASES = re.compile("co-authored-by|generated with", re.IGNORECASE)
 
 

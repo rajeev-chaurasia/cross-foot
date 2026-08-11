@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import logging
 import random
 from collections.abc import Mapping, Sequence
@@ -331,9 +332,20 @@ def _page_image(page: Any, index: int, dpi: int) -> PageImage:
 class VisionExtractor:
     """Two-sample structured extraction over page images, with one repair retry."""
 
-    def __init__(self, client: VisionChatClient, *, run_id: str | None = None) -> None:
+    def __init__(
+        self,
+        client: VisionChatClient,
+        *,
+        run_id: str | None = None,
+        schema_in_prompt: bool = False,
+    ) -> None:
         self._client = client
         self._run_id = run_id
+        # For an endpoint that refuses the response format. The schema is still
+        # the specification; it just has to travel in the message instead of
+        # beside it, or the model is asked for a shape nobody described and a
+        # correct reading fails validation for the wrong reason.
+        self._schema_in_prompt = schema_in_prompt
         self.structured_output_failures = 0
         # Documents that kept their values but lost the k=2 agreement signal.
         self.consistency_degradations = 0
@@ -429,9 +441,12 @@ class VisionExtractor:
         purpose: Purpose,
     ) -> VisionDocument | None:
         """One sample plus at most one repair; None when both fail validation."""
+        prompt = _user_prompt(doc_type, field_order)
+        if self._schema_in_prompt:
+            prompt = f"{prompt}\n\n{_schema_instruction(model)}"
         messages: list[Mapping[str, Any]] = [
             {"role": SYSTEM_ROLE, "content": SYSTEM_PROMPT},
-            {"role": USER_ROLE, "content": _user_prompt(doc_type, field_order)},
+            {"role": USER_ROLE, "content": prompt},
         ]
         response_format = _response_format(model)
         for attempt in range(1, MAX_REPAIR_ATTEMPTS + 2):
@@ -455,6 +470,18 @@ class VisionExtractor:
         if self._run_id is None:
             return None
         return CallContext(run_id=self._run_id, doc_id=doc_id, purpose=purpose, attempt=attempt)
+
+
+def _schema_instruction(model: type[VisionDocument]) -> str:
+    """The schema as a message, for an endpoint that will not take it as a format.
+
+    This is the same specification the response format carries, not a prose
+    restatement of it, so it does not reintroduce the column naming that made
+    smaller models answer with all null rows. It describes the reply's shape and
+    says nothing about what any field looks like on the page.
+    """
+    schema = json.dumps(model.model_json_schema(), separators=(",", ":"))
+    return f"Reply with JSON matching this schema and nothing else:\n{schema}"
 
 
 def _user_prompt(doc_type: DocType, field_order: Sequence[FieldName]) -> str:

@@ -8,12 +8,21 @@ no record; it does not say no model ran, and nothing here may let the two blur.
 from datetime import date
 from pathlib import Path
 
-from crossfoot.constants import DocType, LineType, Oem, Provider, QualityTier, SplitName
+from crossfoot.constants import (
+    DocType,
+    FieldFamily,
+    LineType,
+    Oem,
+    Provider,
+    QualityTier,
+    SplitName,
+)
 from crossfoot.costs.ledger import CostLedger, Purpose
-from crossfoot.evals.runner import run_eval
+from crossfoot.evals.runner import ConfidenceSections, run_eval
 from crossfoot.generator.ledger_gen import generate_ledger
 from crossfoot.ingest_db import extraction_run_id
 from crossfoot.models.manifest import DatasetManifest, ManifestRecord
+from crossfoot.models.scorecard import PlattCell
 from crossfoot.models.statement import StatementDoc, StatementLine
 
 SECRET_MARKER = "9999.99"
@@ -170,3 +179,20 @@ def test_run_eval_still_scores_the_legitimate_document(tmp_path: Path) -> None:
     scorecard = run_eval(dataset_dir, SplitName.TRAIN, cost_db=tmp_path / "absent.db")
     assert scorecard.documents_total == 2
     assert any(cell.correct_canonical > 0 for cell in scorecard.field_accuracy)
+
+
+def test_an_uncalibrated_run_publishes_no_scaling(tmp_path: Path) -> None:
+    dataset_dir = _build_dataset(tmp_path, ())
+    scorecard = run_eval(dataset_dir, SplitName.TRAIN, cost_db=tmp_path / "absent.db")
+    assert scorecard.platt_scaling == ()
+
+
+def test_the_sections_read_calibrated_off_the_cells_they_publish() -> None:
+    """One fact, one place: the notes cannot claim a correction the cells deny."""
+    cell = PlattCell(field_family=FieldFamily.AMOUNT, slope=0.7, intercept=-0.3)
+    scaled = ConfidenceSections(scored_fields=10, platt_scaling=(cell,))
+    raw = ConfidenceSections(scored_fields=10)
+    assert scaled.calibrated
+    assert not raw.calibrated
+    assert "Platt scaled" in scaled.notes(SplitName.TEST)
+    assert "Platt scaled" not in raw.notes(SplitName.TEST)

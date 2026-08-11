@@ -36,6 +36,12 @@ class ProviderProfile(BaseModel):
     base_url: str
     api_key: str
     model: str
+    # Whether this endpoint compiles the extraction schema, which is a narrower
+    # question than whether it advertises json_schema. NVIDIA NIM accepts the
+    # response format and answers a two field schema, then returns 500 on the
+    # frozen document schema. Off means the call goes without the format and the
+    # reply is validated here, which is where it was validated anyway.
+    sends_json_schema: bool = True
 
 
 class Settings(BaseSettings):
@@ -46,11 +52,12 @@ class Settings(BaseSettings):
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     mistral_api_key: str = Field(default="", validation_alias="MISTRAL_API_KEY")
 
-    # Optional custom OpenAI-compatible gateway, e.g. a local Penstock.
-    # When set it becomes the first profile in the pool.
+    # A custom OpenAI-compatible gateway, e.g. NVIDIA NIM or a local Penstock.
+    # When set it leads the pool, which is what .env.example configures.
     custom_base_url: str = Field(default="", validation_alias="CROSSFOOT_LLM_BASE_URL")
     custom_api_key: str = Field(default="", validation_alias="CROSSFOOT_LLM_API_KEY")
     custom_model: str = Field(default="", validation_alias="CROSSFOOT_LLM_MODEL")
+    custom_json_schema: bool = Field(default=True, validation_alias="CROSSFOOT_LLM_JSON_SCHEMA")
 
     llm_timeout_seconds: float = Field(
         default=120.0, validation_alias="CROSSFOOT_LLM_TIMEOUT_SECONDS"
@@ -70,12 +77,21 @@ class Settings(BaseSettings):
         """Profiles in call-priority order; the custom gateway, when set, comes first."""
         profiles: list[ProviderProfile] = []
         if self.custom_base_url:
+            if not self.custom_model:
+                # No default is safe here. A custom base URL points anywhere, and
+                # naming another provider's model sends a request that endpoint
+                # cannot serve, which reads as an outage rather than a typo.
+                raise ValueError(
+                    "CROSSFOOT_LLM_BASE_URL is set without CROSSFOOT_LLM_MODEL; "
+                    "name the model the endpoint serves"
+                )
             profiles.append(
                 ProviderProfile(
                     name=Provider.CUSTOM,
                     base_url=self.custom_base_url,
                     api_key=self.custom_api_key,
-                    model=self.custom_model or PROVIDER_DEFAULT_MODELS[Provider.GEMINI],
+                    model=self.custom_model,
+                    sends_json_schema=self.custom_json_schema,
                 )
             )
         profiles.extend(

@@ -17,7 +17,7 @@ from datetime import date
 
 import pytest
 
-from crossfoot.confidence.calibration import SplitDisciplineError
+from crossfoot.confidence.calibration import PlattScaler, SplitDisciplineError
 from crossfoot.constants import (
     DocType,
     ExtractionRoute,
@@ -211,6 +211,13 @@ def scored() -> ConfidencePass:
     return apply_confidence(documents, _labels(documents, records))
 
 
+@pytest.fixture(scope="module")
+def calibrated() -> ConfidencePass:
+    """The same pass with the correction the published ECE describes turned on."""
+    documents, records = _corpus()
+    return apply_confidence(documents, _labels(documents, records), calibrate=True)
+
+
 def test_fields_get_graded_confidences_rather_than_a_binary_flag(scored: ConfidencePass) -> None:
     confidences = {round(field.confidence, 6) for field in _fields(scored, SplitName.TEST)}
     assert confidences - {0.0, 1.0}, "every confidence is still the extractor's binary flag"
@@ -322,6 +329,48 @@ def test_a_family_no_scorer_learned_stays_in_the_queue_at_zero() -> None:
     )
     assert scored_field.confidence == UNSCORED_CONFIDENCE
     assert scored_field.status is ReviewStatus.NEEDS_REVIEW
+
+
+def test_an_uncalibrated_pass_publishes_no_scaling(scored: ConfidencePass) -> None:
+    assert scored.platt_scaling == ()
+
+
+def test_the_pass_publishes_the_scaler_its_confidences_went_through(
+    scored: ConfidencePass, calibrated: ConfidencePass
+) -> None:
+    """The number on screen has to be rebuildable from the correction beside it."""
+    cell = next(c for c in calibrated.platt_scaling if c.field_family is FieldFamily.AMOUNT)
+    scaler = PlattScaler(slope=cell.slope, intercept=cell.intercept)
+    raw = {field.field_id: field.confidence for field in _fields(scored, SplitName.TEST)}
+    adjusted = _fields(calibrated, SplitName.TEST)
+    assert adjusted
+    for field in adjusted:
+        assert field.confidence == pytest.approx(scaler.apply(raw[field.field_id]))
+    # And the correction is a correction, not a no-op dressed up as one.
+    assert [field.confidence for field in adjusted] != pytest.approx(
+        [raw[field.field_id] for field in adjusted]
+    )
+
+
+def test_calibration_moves_the_confidence_without_moving_the_queue(
+    scored: ConfidencePass, calibrated: ConfidencePass
+) -> None:
+    """The workload claim: a monotone rescaling reorders nothing.
+
+    Two fields cannot swap places, so the same fields sit above the threshold
+    that moved with them, and a reviewer sees an honest probability beside the
+    same queue they had before.
+    """
+    for split in (SplitName.CALIBRATION, SplitName.TEST):
+        raw = {field.field_id: field for field in _fields(scored, split)}
+        pairs = sorted(
+            (raw[field.field_id].confidence, field.confidence)
+            for field in _fields(calibrated, split)
+        )
+        assert [after for _, after in pairs] == sorted(after for _, after in pairs)
+        assert {field.field_id: field.status for field in _fields(calibrated, split)} == {
+            field_id: field.status for field_id, field in raw.items()
+        }
 
 
 @pytest.mark.parametrize("split", [SplitName.CALIBRATION, SplitName.TEST])

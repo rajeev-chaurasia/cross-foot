@@ -286,7 +286,7 @@ class SpilloverClient:
             if limiter is not None:
                 await limiter.acquire(tokens=call.estimated_tokens())
             try:
-                return await _dispatch(client, call, attempt)
+                return await _dispatch(client, call, attempt, profile=profile)
             except LlmError as error:
                 action = action_for(error.status_code)
                 if action is FailureAction.RAISE:
@@ -324,20 +324,29 @@ class SpilloverClient:
         return min(pending) if pending else None
 
 
-async def _dispatch(client: LlmClient, call: _Call, attempt: int) -> ChatResult:
-    """The single place a call reaches the client, so no path can drift."""
+async def _dispatch(
+    client: LlmClient, call: _Call, attempt: int, *, profile: ProviderProfile
+) -> ChatResult:
+    """The single place a call reaches the client, so no path can drift.
+
+    A profile that cannot compile the schema is sent the same call without it.
+    The reply is validated against the model either way, so the format buys a
+    cheaper first attempt rather than the guarantee, and dropping it costs at
+    most a repair turn.
+    """
     context = call.context_at(attempt)
+    response_format = call.response_format if profile.sends_json_schema else None
     if call.images:
         return await client.chat_vision(
             call.messages,
             call.images,
-            response_format=call.response_format,
+            response_format=response_format,
             temperature=call.temperature,
             context=context,
         )
     return await client.chat(
         call.messages,
-        response_format=call.response_format,
+        response_format=response_format,
         temperature=call.temperature,
         context=context,
     )

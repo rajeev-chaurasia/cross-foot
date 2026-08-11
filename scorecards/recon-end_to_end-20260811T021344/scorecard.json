@@ -1,38 +1,36 @@
 {
-  "run_id": "recon-end_to_end-20260810T053640",
-  "created_at": "2026-08-10T05:36:40.752998Z",
-  "git_sha": "a134f91",
+  "run_id": "recon-end_to_end-20260811T021344",
+  "created_at": "2026-08-11T02:13:44.744353Z",
+  "git_sha": "fe5842e",
   "dataset_config_hash": "e14a532c4bcaff5ee56bda0841b18db68855990c0f683fac63980771f3523343",
   "master_seed": 42,
   "split": "test",
   "models_used": [
-    "gemini-3.5-flash",
-    "nvidia/nemotron-nano-12b-v2-vl:free",
-    "qwen2.5vl-crossfoot:7b",
-    "qwen2.5vl:7b"
+    "nvidia/nemotron-nano-12b-v2-vl"
   ],
   "documents_total": 53,
-  "documents_processed": 53,
-  "documents_unprocessable": 0,
+  "documents_processed": 49,
+  "documents_unprocessable": 4,
   "field_accuracy": [],
   "calibration": [],
+  "platt_scaling": [],
   "threshold_sweep": [],
   "reconciliation": [
     {
       "mode": "end_to_end",
       "exception_type": "missing_from_ledger",
       "injected": 14,
-      "detected_true": 8,
-      "detected_false": 14,
+      "detected_true": 13,
+      "detected_false": 22,
       "injected_dollar_cents": 10515631,
-      "caught_dollar_cents": 8661082
+      "caught_dollar_cents": 10118089
     },
     {
       "mode": "end_to_end",
       "exception_type": "missing_from_statement",
       "injected": 13,
       "detected_true": 13,
-      "detected_false": 129,
+      "detected_false": 38,
       "injected_dollar_cents": 11510104,
       "caught_dollar_cents": 11510104
     },
@@ -40,39 +38,39 @@
       "mode": "end_to_end",
       "exception_type": "amount_mismatch",
       "injected": 14,
-      "detected_true": 11,
-      "detected_false": 3,
+      "detected_true": 13,
+      "detected_false": 6,
       "injected_dollar_cents": 830490,
-      "caught_dollar_cents": 776380
+      "caught_dollar_cents": 830390
     },
     {
       "mode": "end_to_end",
       "exception_type": "duplicate",
       "injected": 10,
-      "detected_true": 6,
+      "detected_true": 8,
       "detected_false": 0,
       "injected_dollar_cents": 13697396,
-      "caught_dollar_cents": 12397924
+      "caught_dollar_cents": 13104420
     },
     {
       "mode": "end_to_end",
       "exception_type": "short_pay",
       "injected": 7,
-      "detected_true": 3,
-      "detected_false": 4,
+      "detected_true": 5,
+      "detected_false": 0,
       "injected_dollar_cents": 192950,
-      "caught_dollar_cents": 89269
+      "caught_dollar_cents": 130425
     },
     {
       "mode": "end_to_end",
       "exception_type": "timing_difference",
       "injected": 13,
-      "detected_true": 10,
+      "detected_true": 11,
       "detected_false": 0,
       "injected_dollar_cents": 0,
       "caught_dollar_cents": 0
     }
   ],
   "costs": [],
-  "notes": "Reconciliation in end_to_end mode over 53 statements."
+  "notes": "Reconciliation in end_to_end mode over 49 statements."
 }

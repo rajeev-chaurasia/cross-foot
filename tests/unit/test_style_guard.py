@@ -21,6 +21,13 @@ def test_flags_em_dash(tmp_path: Path) -> None:
     assert guard.check(bad)
 
 
+def test_flags_en_dash(tmp_path: Path) -> None:
+    guard = _load_guard()
+    bad = tmp_path / "bad.md"
+    bad.write_text("pages 3\u20134", encoding="utf-8")
+    assert guard.check(bad)
+
+
 def test_flags_attribution_trailer(tmp_path: Path) -> None:
     guard = _load_guard()
     bad = tmp_path / "msg.txt"
